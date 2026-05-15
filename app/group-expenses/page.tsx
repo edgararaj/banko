@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { getAllGroupExpenses, getAllTransactions, getAllEntities, updateGroupExpense, deleteGroupExpense, getTransactionsByDateRange } from '../lib/db';
 import type { GroupExpense } from '../lib/types';
 import TransactionsList from '../components/TransactionsList';
@@ -25,8 +25,14 @@ export default function GroupExpensesPage() {
   const [showSelector, setShowSelector] = useState(false);
 
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const editId = searchParams.get('edit');
+  const [editId, setEditId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Read query param client-side to avoid CSR-bailout issues with useSearchParams during pre-render
+    if (typeof window === 'undefined') return;
+    const p = new URLSearchParams(window.location.search);
+    setEditId(p.get('edit'));
+  }, []);
 
   useEffect(() => {
     async function load() {

@@ -100,7 +100,9 @@ export async function findTransactionByStrictKey(date: string, amount: number, d
   const idx = store.index('byStrictKey');
   const key = [date, amount, description ?? null];
   return await new Promise((res, rej) => {
-    const r = idx.get(key);
+    // idx.get accepts a compound key array at runtime, but TypeScript's DOM types
+    // don't include null as a valid key element. Cast to unknown to avoid build error.
+    const r = idx.get(key as unknown as IDBValidKey);
     r.onsuccess = () => res(r.result as Transaction | undefined);
     r.onerror = () => rej(r.error);
   });
@@ -183,13 +185,13 @@ export async function updateGroupExpense(ge: any): Promise<void> {
   });
 }
 
-export async function getGroupExpenseById(id: string) {
+export async function getGroupExpenseById(id: string): Promise<GroupExpense | undefined> {
   const db = await openDB();
   const tx = db.transaction('group_expenses', 'readonly');
   const store = tx.objectStore('group_expenses');
   return await new Promise((res, rej) => {
     const r = store.get(id);
-    r.onsuccess = () => res(r.result);
+    r.onsuccess = () => res(r.result as GroupExpense | undefined);
     r.onerror = () => rej(r.error);
   });
 }

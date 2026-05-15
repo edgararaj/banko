@@ -22,9 +22,9 @@ function dateYMD(d: Date): string {
 }
 
 /** Validates the strict description prefixes requested by the specification */
-function hasValidPrefix(description?: string): boolean {
+function hasValidPrefix(description?: string | null): boolean {
   if (!description) return false;
-  const d = description.trim().toLowerCase();
+  const d = (description as string).trim().toLowerCase();
   return d.startsWith('tfi') || d.startsWith('trf mbway');
 }
 

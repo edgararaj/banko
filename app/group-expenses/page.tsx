@@ -7,6 +7,7 @@ import { getAllGroupExpenses, getAllTransactions, getAllEntities, updateGroupExp
 import type { GroupExpense, Transaction } from '../lib/types';
 import TransactionsList from '../components/TransactionsList';
 import { participantCountForGroup, remainingExcludingPayer, candidateTransfersNearAnchor } from '../lib/group';
+import { parseDateStringToMs } from '../lib/format';
 
 function formatCents(cents: number) {
   const sign = cents < 0 ? '-' : '';
@@ -16,12 +17,21 @@ function formatCents(cents: number) {
   return `${sign}${euros},${rem} €`;
 }
 
+function parseExtraExpensesInput(input: string) {
+  const cleaned = input.replace(/[^0-9.]/g, '');
+  const parsed = parseFloat(cleaned || '0');
+  return Math.round((Number.isFinite(parsed) ? parsed : 0) * 100);
+}
+
 export default function GroupExpensesPage() {
   const [groups, setGroups] = useState<GroupExpense[]>([]);
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [entities, setEntities] = useState<Record<string,string>>({});
   const [editing, setEditing] = useState<GroupExpense | null>(null);
+  const [extraExpensesInput, setExtraExpensesInput] = useState('');
   const [showSelector, setShowSelector] = useState(false);
+  const [showAllTransfers, setShowAllTransfers] = useState(false);
+  const [selectedTransferIds, setSelectedTransferIds] = useState<string[]>([]);
 
   const router = useRouter();
   const [editId, setEditId] = useState<string | null>(() => {
@@ -35,6 +45,7 @@ export default function GroupExpensesPage() {
       const gs = await getAllGroupExpenses();
       setGroups(gs);
       const allTx = await getAllTransactions();
+      allTx.sort((a, b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
       setTxs(allTx);
       const es = await getAllEntities();
       const map: Record<string,string> = {};
@@ -44,7 +55,13 @@ export default function GroupExpensesPage() {
       if (editId) {
         const g = gs.find(x => x.id === editId);
         setEditing(g || null);
-      } else setEditing(null);
+        setExtraExpensesInput(((g?.extraExpenses ?? 0) / 100).toFixed(2));
+        setShowAllTransfers(false);
+        setSelectedTransferIds([]);
+      } else {
+        setEditing(null);
+        setExtraExpensesInput('');
+      }
     }
     load();
   }, [editId]);
@@ -58,12 +75,16 @@ export default function GroupExpensesPage() {
       const existingSet = new Set(ed.participantTransactionIds || []);
       selectorCandidates = selectorCandidates.filter(t => !existingSet.has(t.id));
     }
+    const existingSet = new Set(ed.participantTransactionIds || []);
+    const allSelectableTransfers = txs.filter((t) => !existingSet.has(t.id));
+    const visibleTransfers = showAllTransfers ? allSelectableTransfers : selectorCandidates;
 
     const participantCount = participantCountForGroup(ed, ed.participantTransactionIds);
     const remainingExcludingMyShare = remainingExcludingPayer(ed.totalAmount, txs, ed.participantTransactionIds, ed.friendCount, ed.extraExpenses ?? 0);
     const anchor = txs.find(x => x.id === ed.anchorTransactionId);
     const anchorDescription = anchor ? (anchor.description ?? '') : '';
     const anchorName = anchor ? (anchor.entityId ? (entities[anchor.entityId] ?? anchor.entityId) : '') : '';
+    const parsedExtraExpenses = parseExtraExpensesInput(extraExpensesInput);
 
     return (
       <Box sx={{ p: 2 }}>
@@ -77,17 +98,17 @@ export default function GroupExpensesPage() {
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
             <Typography variant="body1">Extra expenses:</Typography>
             <TextField
-              type="number"
+              type="text"
               size="small"
-              slotProps={{ htmlInput: { step: '0.01' } }}
-              value={((ed.extraExpenses ?? 0) / 100).toFixed(2)}
+              inputMode="decimal"
+              autoComplete="off"
+              value={extraExpensesInput}
               onChange={(e) => {
-                const v = Math.round((parseFloat(e.target.value || '0') || 0) * 100);
-                setEditing((prev) => (prev ? { ...prev, extraExpenses: v } : prev));
+                setExtraExpensesInput(e.target.value);
               }}
               sx={{ width: 120 }}
             />
-            <Typography variant="body1"><strong>{formatCents(ed.extraExpenses ?? 0)}</strong></Typography>
+            <Typography variant="body1"><strong>{formatCents(parsedExtraExpenses)}</strong></Typography>
           </Stack>
           <Typography variant="body1">Participants: <strong>{participantCount}</strong></Typography>
           <Typography variant="body1">Remaining (excluding my share): <strong>{formatCents(remainingExcludingMyShare)}</strong></Typography>
@@ -147,20 +168,34 @@ export default function GroupExpensesPage() {
           <DialogContent dividers>
             <Box sx={{ maxHeight: '62vh', overflowY: 'auto', pt: 1 }}>
               <TransactionsList
-                transactions={selectorCandidates}
+                transactions={visibleTransfers}
                 selectable={true}
-                onConfirm={(ids) => {
-                  const unique = new Set([...(ed.participantTransactionIds || []), ...ids]);
-                  const updated = { ...ed, participantTransactionIds: Array.from(unique) };
-                  setEditing(updated);
-                  setGroups(gs => gs.map(g => g.id === updated.id ? updated : g));
-                  setShowSelector(false);
-                }}
+                selectedIds={selectedTransferIds}
+                onSelectionChange={setSelectedTransferIds}
               />
             </Box>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setShowSelector(false)}>Close</Button>
+            <Button variant="outlined" onClick={() => setShowAllTransfers((prev) => !prev)}>
+              {showAllTransfers ? 'Show less' : 'Show more'}
+            </Button>
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => {
+                const unique = new Set([...(ed.participantTransactionIds || []), ...selectedTransferIds]);
+                const updated = { ...ed, participantTransactionIds: Array.from(unique) };
+                updated.extraExpenses = parsedExtraExpenses;
+                setEditing(updated);
+                setGroups(gs => gs.map(g => g.id === updated.id ? updated : g));
+                setShowSelector(false);
+                setShowAllTransfers(false);
+                setSelectedTransferIds([]);
+              }}
+            >
+              Confirm selection
+            </Button>
+            <Button onClick={() => { setShowSelector(false); setSelectedTransferIds([]); }}>Close</Button>
           </DialogActions>
         </Dialog>
 
@@ -177,6 +212,7 @@ export default function GroupExpensesPage() {
                 }
                 const toSave = {
                   ...ed,
+                  extraExpenses: parsedExtraExpenses,
                   friendCount: distinctEntities.size > 0 ? distinctEntities.size : (ed.participantTransactionIds?.length ?? 0),
                   status: 'modified'
                 };

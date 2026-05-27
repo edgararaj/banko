@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { addEntityIfNotExists, addTransactionIfNotExists } from '../lib/db';
 import { inferGroupExpenses } from '../lib/inference';
 import type { Transaction as Tx } from '../lib/types';
+import { Box, Button, Stack, Typography } from '@mui/material';
 
 function parseCSV(content: string): Record<string,string>[] {
   // Minimal RFC4180-ish parser: handles quoted fields and simple commas
@@ -75,10 +76,12 @@ function parseAmountToCents(raw: string): number {
 
 export default function CSVImport() {
   const [status, setStatus] = useState<string>('');
+  const [selectedFileName, setSelectedFileName] = useState<string>('');
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSelectedFileName(file.name);
     setStatus('Reading file...');
     const text = await file.text();
     setStatus('Parsing CSV...');
@@ -175,9 +178,19 @@ export default function CSVImport() {
   }
 
   return (
-    <div>
-      <input type="file" accept="text/csv" onChange={handleFile} className="mt-2 bg-[#071022] text-white border rounded p-2" />
-      <div className="mt-2 text-sm small-muted">{status}</div>
-    </div>
+    <Box sx={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
+      <Stack spacing={1.5} sx={{ width: '100%', minWidth: 0 }}>
+        <Box sx={{ width: '100%', minWidth: 0 }}>
+          <Button component="label" variant="contained" sx={{ justifyContent: 'flex-start' }}>
+            {selectedFileName || 'Choose CSV file'}
+            <input hidden type="file" accept="text/csv" onChange={handleFile} />
+          </Button>
+        </Box>
+
+        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+          {status}
+        </Typography>
+      </Stack>
+    </Box>
   );
 }

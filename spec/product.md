@@ -151,7 +151,7 @@ Fields:
 
   * inferred (default)
   * modified (after user edits)
-  * deleted (if rejected)
+  * completed (if user acknowledges correctness)
 
 ---
 

@@ -21,7 +21,7 @@ export interface DateWindow {
   end: string;   // ISO date string
 }
 
-export type GroupExpenseStatus = 'inferred' | 'modified' | 'deleted';
+export type GroupExpenseStatus = 'inferred' | 'modified' | 'completed';
 
 export interface GroupExpense {
   id: string; // uuid

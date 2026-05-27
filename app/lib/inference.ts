@@ -43,13 +43,10 @@ export async function inferGroupExpenses(): Promise<number> {
   // Build exclusion sets so already-matched transactions are never reused
   const usedTransactionIds = new Set<string>();
   const usedAnchorIds      = new Set<string>(
-    existing
-      .filter(g => g.status !== 'deleted')
-      .map(g => g.anchorTransactionId)
+    existing.map(g => g.anchorTransactionId)
   );
 
   for (const g of existing) {
-    if (g.status === 'deleted') continue;
     for (const id of g.participantTransactionIds) usedTransactionIds.add(id);
   }
 
@@ -184,7 +181,6 @@ export async function inferCustomGroup(anchorId: string, extraCents: number): Pr
 
   const usedReimbursementIds = new Set<string>();
   for (const g of existing) {
-    if (g.status === 'deleted') continue;
     for (const pid of g.participantTransactionIds) usedReimbursementIds.add(pid);
   }
 

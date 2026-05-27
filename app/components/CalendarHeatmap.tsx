@@ -65,7 +65,7 @@ export default function CalendarHeatmap() {
 
   return (
     <div className="">
-      <p className="mb-4 small-muted">Last 120 days. Hover for amounts.</p>
+      <p className="mb-4 small-muted">Last 120 days:</p>
 
       <div className="flex flex-col gap-3 items-start">
         <div style={{ display: 'flex', gap: 4 }}>

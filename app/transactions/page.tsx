@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getAllTransactions, getAllEntities, createGroupFromTransactionIds } from '../lib/db';
 import { parseDateStringToMs } from '../lib/format';
-import { Box, Button, Card, CardActionArea, CardContent, Stack, TextField, Typography, Chip, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { Box, Button, Card, CardActionArea, CardContent, Stack, TextField, Typography, Chip, FormControl, InputLabel, Select, MenuItem, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
 import type { Transaction } from '../lib/types';
 
 function formatCents(cents: number) {
@@ -14,11 +14,20 @@ function formatCents(cents: number) {
   return `${sign}${euros},${rem} €`;
 }
 
+function parseCentsInput(input: string) {
+  const cleaned = input.replace(/[^0-9.]/g, '');
+  const parsed = parseFloat(cleaned || '0');
+  return Math.round((Number.isFinite(parsed) ? parsed : 0) * 100);
+}
+
 export default function TransactionsPage() {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [entitiesMap, setEntitiesMap] = useState<Record<string,string>>({});
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [anchorPromptOpen, setAnchorPromptOpen] = useState(false);
+  const [anchorAmountInput, setAnchorAmountInput] = useState('');
+  const [pendingGroupIds, setPendingGroupIds] = useState<string[]>([]);
 
   const [filterEntity, setFilterEntity] = useState<string>('');
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
@@ -48,18 +57,27 @@ export default function TransactionsPage() {
     setCreating(true);
     try {
       await createGroupFromTransactionIds(selectedIds);
-      // refresh transactions and clear selection
-      const arr = await getAllTransactions();
-      arr.sort((a,b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
-      setTxs(arr);
+      await refreshTransactions();
       setSelected({});
       alert('Group created');
     } catch (err) {
       console.error(err);
-      alert('Failed to create group: ' + (err instanceof Error ? err.message : ''));    
+      if (err instanceof Error && err.message === 'NO_ANCHOR_FOUND') {
+        setPendingGroupIds(selectedIds);
+        setAnchorAmountInput('');
+        setAnchorPromptOpen(true);
+      } else {
+        alert('Failed to create group: ' + (err instanceof Error ? err.message : ''));
+      }
     } finally {
       setCreating(false);
     }
+  };
+
+  const refreshTransactions = async () => {
+    const arr = await getAllTransactions();
+    arr.sort((a, b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
+    setTxs(arr);
   };
 
   const filtered = useMemo(() => {
@@ -79,6 +97,31 @@ export default function TransactionsPage() {
       return true;
     });
   }, [txs, filterEntity, filterDateFrom, filterDateTo, filterAmountMin, filterAmountMax]);
+
+  const handleCreateMissingAnchorGroup = async () => {
+    if (pendingGroupIds.length === 0) return;
+    const cents = parseCentsInput(anchorAmountInput);
+    if (cents <= 0) {
+      alert('Enter an anchor amount greater than 0.');
+      return;
+    }
+
+    setCreating(true);
+    try {
+      await createGroupFromTransactionIds(pendingGroupIds, cents);
+      await refreshTransactions();
+      setSelected({});
+      setPendingGroupIds([]);
+      setAnchorPromptOpen(false);
+      setAnchorAmountInput('');
+      alert('Group created');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to create group: ' + (err instanceof Error ? err.message : ''));
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <Box sx={{ p: 2 }}>
@@ -131,6 +174,30 @@ export default function TransactionsPage() {
           <Button variant="contained" color="primary" onClick={handleCreateGroup} sx={{ borderRadius: 999, px: 3, py: 1.25 }}> {creating ? 'Creating...' : 'Create Group Exchange'} </Button>
         </Box>
       )}
+
+      <Dialog open={anchorPromptOpen} onClose={() => setAnchorPromptOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Enter anchor amount</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            No anchor payment was found in the selected transfers. Enter the anchor amount to create the group.
+          </Typography>
+          <TextField
+            fullWidth
+            label="Anchor amount"
+            value={anchorAmountInput}
+            onChange={(e) => setAnchorAmountInput(e.target.value)}
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0.00"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setAnchorPromptOpen(false); setPendingGroupIds([]); setAnchorAmountInput(''); }}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreateMissingAnchorGroup} disabled={creating}>
+            Create group
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

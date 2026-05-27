@@ -93,6 +93,19 @@ export async function addEntityIfNotExists(bankName: string): Promise<Entity> {
   return entity;
 }
 
+export async function updateEntity(entity: Entity): Promise<void> {
+  const db = await openDB();
+  const tx = db.transaction('entities', 'readwrite');
+  const store = tx.objectStore('entities');
+  const req = store.put(entity);
+  req.onsuccess = () => console.debug('db: entity updated', entity.id);
+  req.onerror = () => console.error('db: entity update failed', req.error);
+  await new Promise((res, rej) => {
+    tx.oncomplete = () => res(undefined);
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
 export async function findTransactionByStrictKey(date: string, amount: number, description?: string | null): Promise<Transaction | undefined> {
   const db = await openDB();
   const tx = db.transaction('transactions', 'readonly');
@@ -236,20 +249,17 @@ export async function getTransactionsByDateRange(startISO: string, endISO: strin
   });
 }
 
-export async function createGroupFromTransactionIds(ids: string[]): Promise<void> {
+export async function createGroupFromTransactionIds(ids: string[], fallbackAnchorAmountCents?: number): Promise<void> {
   if (!ids || ids.length === 0) return;
   const db = await openDB();
-  const tx = db.transaction(['transactions', 'group_expenses'], 'readwrite');
-  const tStore = tx.objectStore('transactions');
-  const gStore = tx.objectStore('group_expenses');
+  const readTx = db.transaction('transactions', 'readonly');
+  const tStore = readTx.objectStore('transactions');
 
   // load selected transactions
   const selected: Transaction[] = [];
   for (const id of ids) {
     // eslint-disable-next-line no-await-in-loop
     const req = tStore.get(id);
-    // wrap in promise
-    // @ts-ignore runtime DOM IDBRequest shape
     const obj = await new Promise<Transaction | undefined>((res, rej) => {
       req.onsuccess = () => res(req.result as Transaction | undefined);
       req.onerror = () => rej(req.error);
@@ -268,10 +278,28 @@ export async function createGroupFromTransactionIds(ids: string[]): Promise<void
   }
 
   if (!anchor) {
-    // no explicit anchor in selection; try to find a negative transaction in DB near these dates
-    // fallback: abort
-    throw new Error('No anchor transaction (negative amount) found in selection');
+    if (typeof fallbackAnchorAmountCents !== 'number' || !Number.isFinite(fallbackAnchorAmountCents)) {
+      throw new Error('NO_ANCHOR_FOUND');
+    }
+
+    const selectedDates = selected.map((s) => s.date).filter(Boolean);
+    const anchorDate = selectedDates.length > 0
+      ? selectedDates.reduce((earliest, current) => (earliest < current ? earliest : current))
+      : new Date().toISOString().slice(0, 10);
+
+    const syntheticAnchor: Transaction = {
+      id: crypto.randomUUID(),
+      date: anchorDate,
+      description: 'Synthetic anchor transaction',
+      amount: -Math.abs(Math.round(fallbackAnchorAmountCents)),
+      entityId: null,
+    };
+
+    anchor = await addTransactionIfNotExists(syntheticAnchor);
   }
+
+  const tx = db.transaction('group_expenses', 'readwrite');
+  const gStore = tx.objectStore('group_expenses');
 
   const participantIds = selected.map(s => s.id).filter(id => id !== anchor!.id);
 

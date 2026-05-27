@@ -36,7 +36,6 @@ export async function computeDebts(): Promise<{ entityDebts: EntityNetDebt[]; gr
   const rounding = (v: number) => Math.round(v); // cents already
 
   for (const g of groups) {
-    if (g.status === 'deleted') continue; // skip deleted groups per spec
     const total = g.totalAmount;
     const participants = g.friendCount + 1;
     const expectedShare = rounding(total / participants);

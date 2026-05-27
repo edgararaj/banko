@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Box, Button, Card, CardActionArea, CardContent, Dialog, DialogActions, DialogContent, DialogTitle, Divider, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { getAllGroupExpenses, getAllTransactions, getAllEntities, updateGroupExpense, deleteGroupExpense } from '../lib/db';
 import type { GroupExpense, Transaction } from '../lib/types';
 import TransactionsList from '../components/TransactionsList';
@@ -21,6 +22,13 @@ function parseExtraExpensesInput(input: string) {
   const cleaned = input.replace(/[^0-9.]/g, '');
   const parsed = parseFloat(cleaned || '0');
   return Math.round((Number.isFinite(parsed) ? parsed : 0) * 100);
+}
+
+function groupAnchorDateMs(group: GroupExpense, txs: Transaction[]) {
+  const anchor = txs.find((tx) => tx.id === group.anchorTransactionId);
+  const fallbackDate = group.dateWindow?.start ?? group.dateWindow?.end ?? '';
+  const ms = parseDateStringToMs(anchor?.date ?? fallbackDate);
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 export default function GroupExpensesPage() {
@@ -158,7 +166,7 @@ export default function GroupExpensesPage() {
               </List>
             )}
             <Box sx={{ mt: 2 }}>
-              <Button variant="contained" onClick={() => setShowSelector(true)}>Add participant transfer</Button>
+              <Button variant="outlined" onClick={() => setShowSelector(true)}>Add participant transfer</Button>
             </Box>
           </CardContent>
         </Card>
@@ -199,10 +207,9 @@ export default function GroupExpensesPage() {
           </DialogActions>
         </Dialog>
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ mt: 2.5 }}>
+        <Stack spacing={1.25} sx={{ mt: 2.5 }}>
           <Button
             variant="contained"
-            color="success"
             onClick={async () => {
               try {
                 const distinctEntities = new Set<string>();
@@ -229,6 +236,27 @@ export default function GroupExpensesPage() {
           </Button>
           <Button
             variant="contained"
+            color="success"
+            onClick={async () => {
+              try {
+                const toSave = {
+                  ...ed,
+                  extraExpenses: parsedExtraExpenses,
+                  status: 'completed' as const,
+                };
+                await updateGroupExpense(toSave);
+                setEditId(null);
+                router.push('/group-expenses');
+              } catch (err) {
+                console.error(err);
+                alert('Mark complete failed');
+              }
+            }}
+          >
+            Mark complete
+          </Button>
+          <Button
+            variant="contained"
             color="error"
             onClick={async () => {
               try {
@@ -252,12 +280,15 @@ export default function GroupExpensesPage() {
     <Box sx={{ p: 2 }}>
       <Typography variant="h5" component="h2" sx={{ mb: 2 }}>Group Expenses</Typography>
       <Stack spacing={1.25}>
-        {groups.map(g => {
+        {[...groups]
+          .sort((a, b) => groupAnchorDateMs(b, txs) - groupAnchorDateMs(a, txs))
+          .map(g => {
           const anchor = txs.find(t => t.id === g.anchorTransactionId);
           const anchorName = anchor ? (anchor.entityId ? (entities[anchor.entityId] || anchor.entityId) : '') : '';
           const anchorDesc = anchor ? (anchor.description ?? '') : '';
           const remaining = remainingExcludingPayer(g.totalAmount, txs, g.participantTransactionIds, g.friendCount, g.extraExpenses ?? 0);
           const participantCount = participantCountForGroup(g, g.participantTransactionIds);
+          const isCompleted = g.status === 'completed';
           return (
             <Card key={g.id} variant="outlined">
               <CardActionArea
@@ -268,7 +299,12 @@ export default function GroupExpensesPage() {
                 sx={{ px: 1.25, py: 1.1 }}
               >
                 <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{formatCents(g.totalAmount)} - {g.status}</Typography>
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                    {isCompleted ? <CheckCircleRoundedIcon sx={{ color: 'success.main', fontSize: 18 }} /> : null}
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, color: isCompleted ? 'success.main' : 'text.primary' }}>
+                      {formatCents(g.totalAmount)} - {g.status}
+                    </Typography>
+                  </Stack>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
                     Anchor: {anchorDesc}{anchorName ? ` - ${anchorName}` : ''}
                   </Typography>

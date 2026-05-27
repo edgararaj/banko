@@ -4,8 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Box, Button, Card, CardActionArea, CardContent, Dialog, DialogActions, DialogContent, DialogTitle, Divider, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
-import { getAllGroupExpenses, getAllTransactions, getAllEntities, updateGroupExpense, deleteGroupExpense } from '../lib/db';
-import type { GroupExpense, Transaction } from '../lib/types';
+import { getAllGroupExpenses, getAllTransactions, getAllEntities, getAllBankAccounts, updateGroupExpense, deleteGroupExpense, resolveTransactionBankAccountId } from '../lib/db';
+import type { GroupExpense, BankAccount, Transaction } from '../lib/types';
 import TransactionsList from '../components/TransactionsList';
 import { participantCountForGroup, remainingExcludingPayer, candidateTransfersNearAnchor } from '../lib/group';
 import { parseDateStringToMs } from '../lib/format';
@@ -35,6 +35,7 @@ export default function GroupExpensesPage() {
   const [groups, setGroups] = useState<GroupExpense[]>([]);
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [entities, setEntities] = useState<Record<string,string>>({});
+  const [linkedAccounts, setLinkedAccounts] = useState<Record<string, BankAccount>>({});
   const [editing, setEditing] = useState<GroupExpense | null>(null);
   const [extraExpensesInput, setExtraExpensesInput] = useState('');
   const [showSelector, setShowSelector] = useState(false);
@@ -57,8 +58,12 @@ export default function GroupExpensesPage() {
       setTxs(allTx);
       const es = await getAllEntities();
       const map: Record<string,string> = {};
-      for (const e of es) map[e.id] = e.name || e.bankName || '__unknown__';
+      for (const e of es) map[e.id] = e.name;
       setEntities(map);
+      const accounts = await getAllBankAccounts();
+      const accountMap: Record<string, BankAccount> = {};
+      for (const account of accounts) accountMap[account.id] = account;
+      setLinkedAccounts(accountMap);
 
       if (editId) {
         const g = gs.find(x => x.id === editId);
@@ -91,7 +96,8 @@ export default function GroupExpensesPage() {
     const remainingExcludingMyShare = remainingExcludingPayer(ed.totalAmount, txs, ed.participantTransactionIds, ed.friendCount, ed.extraExpenses ?? 0);
     const anchor = txs.find(x => x.id === ed.anchorTransactionId);
     const anchorDescription = anchor ? (anchor.description ?? '') : '';
-    const anchorName = anchor ? (anchor.entityId ? (entities[anchor.entityId] ?? anchor.entityId) : '') : '';
+    const anchorAccount = anchor ? linkedAccounts[resolveTransactionBankAccountId(anchor) ?? ''] : undefined;
+    const anchorName = anchorAccount ? (entities[anchorAccount.entityId] ?? anchorAccount.entityId) : '';
     const parsedExtraExpenses = parseExtraExpensesInput(extraExpensesInput);
 
     return (
@@ -156,7 +162,11 @@ export default function GroupExpensesPage() {
                       >
                         <ListItemText
                           primary={`${t ? t.date : pid} ${t ? `- ${formatCents(t.amount)}` : ''}`}
-                          secondary={t && t.entityId ? (entities[t.entityId] ?? t.entityId) : 'unknown'}
+                          secondary={(() => {
+                            const accountId = t ? resolveTransactionBankAccountId(t) : null;
+                            const account = accountId ? linkedAccounts[accountId] : undefined;
+                            return account ? (entities[account.entityId] ?? account.entityId) : 'unknown';
+                          })()}
                         />
                       </ListItem>
                       {idx < (ed.participantTransactionIds || []).length - 1 ? <Divider component="li" /> : null}
@@ -215,13 +225,15 @@ export default function GroupExpensesPage() {
                 const distinctEntities = new Set<string>();
                 for (const pid of ed.participantTransactionIds || []) {
                   const t = txs.find(x => x.id === pid);
-                  if (t && t.entityId) distinctEntities.add(t.entityId);
+                  const accountId = t ? resolveTransactionBankAccountId(t) : null;
+                  const account = accountId ? linkedAccounts[accountId] : undefined;
+                  if (account) distinctEntities.add(account.entityId);
                 }
                 const toSave = {
                   ...ed,
                   extraExpenses: parsedExtraExpenses,
                   friendCount: distinctEntities.size > 0 ? distinctEntities.size : (ed.participantTransactionIds?.length ?? 0),
-                  status: 'modified'
+                  status: 'modified' as const
                 };
                 await updateGroupExpense(toSave);
                 setEditId(null);
@@ -284,7 +296,8 @@ export default function GroupExpensesPage() {
           .sort((a, b) => groupAnchorDateMs(b, txs) - groupAnchorDateMs(a, txs))
           .map(g => {
           const anchor = txs.find(t => t.id === g.anchorTransactionId);
-          const anchorName = anchor ? (anchor.entityId ? (entities[anchor.entityId] || anchor.entityId) : '') : '';
+          const anchorAccount = anchor ? linkedAccounts[resolveTransactionBankAccountId(anchor) ?? ''] : undefined;
+          const anchorName = anchorAccount ? (entities[anchorAccount.entityId] || anchorAccount.entityId) : '';
           const anchorDesc = anchor ? (anchor.description ?? '') : '';
           const remaining = remainingExcludingPayer(g.totalAmount, txs, g.participantTransactionIds, g.friendCount, g.extraExpenses ?? 0);
           const participantCount = participantCountForGroup(g, g.participantTransactionIds);

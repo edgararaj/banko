@@ -1,4 +1,4 @@
-import { getAllGroupExpenses, getAllTransactions, getAllEntities } from './db';
+import { getAllGroupExpenses, getAllTransactions, getAllEntities, getAllBankAccounts, resolveTransactionBankAccountId } from './db';
 import type { GroupExpense } from './types';
 
 export interface EntityNetDebt {
@@ -25,10 +25,13 @@ export async function computeDebts(): Promise<{ entityDebts: EntityNetDebt[]; gr
   const groups = await getAllGroupExpenses();
   const txs = await getAllTransactions();
   const entities = await getAllEntities();
+  const linkedAccounts = await getAllBankAccounts();
   const txById = new Map<string, typeof txs[0]>();
   for (const t of txs) txById.set(t.id, t);
   const entityById = new Map<string, string>();
   for (const e of entities) entityById.set(e.id, e.name);
+  const accountById = new Map<string, { entityId: string }>();
+  for (const account of linkedAccounts) accountById.set(account.id, { entityId: account.entityId });
 
   const groupDetails: GroupDebtDetail[] = [];
   const netDebtMap = new Map<string, number>();
@@ -44,10 +47,11 @@ export async function computeDebts(): Promise<{ entityDebts: EntityNetDebt[]; gr
     const paymentsPerEntity = new Map<string, number>();
     for (const pid of g.participantTransactionIds) {
       const t = txById.get(pid);
-      if (!t) continue;
-      if (!t.entityId) continue;
-      const prev = paymentsPerEntity.get(t.entityId) ?? 0;
-      paymentsPerEntity.set(t.entityId, prev + t.amount);
+      const accountId = t ? resolveTransactionBankAccountId(t) : null;
+      const account = accountId ? accountById.get(accountId) : undefined;
+      if (!t || !account) continue;
+      const prev = paymentsPerEntity.get(account.entityId) ?? 0;
+      paymentsPerEntity.set(account.entityId, prev + t.amount);
     }
 
     const friendBalances: GroupFriendBalance[] = [];

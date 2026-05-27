@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react';
-import { addEntityIfNotExists, addTransactionIfNotExists } from '../lib/db';
+import { addTransactionIfNotExists, ensureEntityAndBankAccount } from '../lib/db';
 import { inferGroupExpenses } from '../lib/inference';
 import type { Transaction as Tx } from '../lib/types';
 import { Box, Button, Stack, Typography } from '@mui/material';
@@ -152,11 +152,11 @@ export default function CSVImport() {
         description: description || null,
         location: location || null,
         amount,
-        entityId: null,
+        bankAccountId: null,
       };
       try {
-        const entity = await addEntityIfNotExists(bankName || 'unknown');
-        txn.entityId = entity.id;
+        const owner = await ensureEntityAndBankAccount(bankName || 'unknown');
+        txn.bankAccountId = owner.bankAccount.id;
         const res = await addTransactionIfNotExists(txn);
         if (res.id === txn.id) inserted++; else skipped++;
       } catch (err) {

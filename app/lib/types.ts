@@ -7,13 +7,18 @@ export interface Transaction {
   description?: string | null;
   location?: string | null;
   amount: Cents; // signed integer (cents)
-  entityId?: string | null; // FK → Entity
+  bankAccountId?: string | null; // FK → BankAccount
 }
 
 export interface Entity {
   id: string; // uuid
-  bankName: string; // raw extracted identifier
   name: string; // normalized display name (trim + lowercased for deterministic match)
+}
+
+export interface BankAccount {
+  id: string; // uuid
+  entityId: string; // FK → Entity
+  name: string; // raw extracted identifier for the account
 }
 
 export interface DateWindow {

@@ -1,9 +1,9 @@
 'use client'
 
 import React, { useEffect, useState } from 'react';
-import { getAllTransactions, getAllEntities } from '../lib/db';
+import { getAllTransactions, getAllEntities, getAllBankAccounts, resolveTransactionBankAccountId } from '../lib/db';
 import { formatDateDisplay, parseDateStringToMs } from '../lib/format';
-import type { Transaction } from '../lib/types';
+import type { BankAccount, Transaction } from '../lib/types';
 import { Box, Button, Card, CardActionArea, CardContent, Checkbox, Stack, Typography } from '@mui/material';
 
 type Props = {
@@ -28,6 +28,7 @@ export default function TransactionsList(props: Props) {
   const { transactions: txsProp, entitiesMap: emapProp, selectable, selectedIds = [], onSelectionChange, createGroupHandler } = props;
   const [fetchedTxs, setFetchedTxs] = useState<Transaction[] | null>(null);
   const [fetchedEntities, setFetchedEntities] = useState<Record<string,string> | null>(null);
+  const [fetchedAccounts, setFetchedAccounts] = useState<Record<string, BankAccount> | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -39,12 +40,18 @@ export default function TransactionsList(props: Props) {
       if (!emapProp) {
         const es = await getAllEntities();
         const m: Record<string,string> = {};
-        for (const e of es) m[e.id] = e.name || e.bankName || '__unknown__';
+        for (const e of es) m[e.id] = e.name;
         setFetchedEntities(m);
+      }
+      if (!fetchedAccounts) {
+        const accounts = await getAllBankAccounts();
+        const map: Record<string, BankAccount> = {};
+        for (const account of accounts) map[account.id] = account;
+        setFetchedAccounts(map);
       }
     }
     load();
-  }, [txsProp, emapProp]);
+  }, [txsProp, emapProp, fetchedAccounts]);
 
   const toggle = (id: string) => {
     if (!onSelectionChange) return;
@@ -54,6 +61,7 @@ export default function TransactionsList(props: Props) {
 
   const displayTxs = txsProp ?? fetchedTxs ?? [];
   const displayEntities = emapProp ?? fetchedEntities ?? {};
+  const displayAccounts = fetchedAccounts ?? {};
 
   return (
     <Box>
@@ -71,7 +79,12 @@ export default function TransactionsList(props: Props) {
                       {formatDateDisplay(t.date)}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {t.entityId ? displayEntities[t.entityId] : '__unknown__'}
+                      {(() => {
+                        const accountId = resolveTransactionBankAccountId(t);
+                        const account = accountId ? displayAccounts[accountId] : undefined;
+                        const entityName = account ? (displayEntities[account.entityId] ?? '__unknown__') : '__unknown__';
+                        return account ? `${entityName} — ${account.name}` : entityName;
+                      })()}
                     </Typography>
                   </Box>
 

@@ -97,8 +97,8 @@ export default function CalendarHeatmap() {
 
         <div>
           <div className="mb-1 font-medium">Legend</div>
-          <div className="flex items-center gap-2 mb-1"><div style={{ width: 16, height: 16, background: 'rgba(16,185,129,0.9)', borderRadius: 3 }} /> <div>Money received (green)</div></div>
-          <div className="flex items-center gap-2 mb-1"><div style={{ width: 16, height: 16, background: 'rgba(239,68,68,0.9)', borderRadius: 3 }} /> <div>Money spent (red)</div></div>
+          <div className="flex items-center gap-2 mb-1"><div style={{ width: 16, height: 16, background: 'rgba(16,185,129,0.9)', borderRadius: 3 }} /> <div>Money received</div></div>
+          <div className="flex items-center gap-2 mb-1"><div style={{ width: 16, height: 16, background: 'rgba(239,68,68,0.9)', borderRadius: 3 }} /> <div>Money spent</div></div>
           <div className="mt-3 text-sm small-muted">Max absolute daily amount: {formatEuro(maxAbs)}</div>
         </div>
       </div>

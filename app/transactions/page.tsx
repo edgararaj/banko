@@ -1,10 +1,12 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAllTransactions, getAllEntities, createGroupFromTransactionIds } from '../lib/db';
+import { getAllTransactions, getAllEntities, getAllBankAccounts, createGroupFromTransactionIds, resolveTransactionBankAccountId } from '../lib/db';
 import { parseDateStringToMs } from '../lib/format';
-import { Box, Button, Card, CardActionArea, CardContent, Stack, TextField, Typography, Chip, FormControl, InputLabel, Select, MenuItem, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
-import type { Transaction } from '../lib/types';
+import { Box, Button, Card, CardActionArea, CardContent, Stack, TextField, Typography, Chip, FormControl, InputLabel, Select, MenuItem, Dialog, DialogActions, DialogContent, DialogTitle, Divider } from '@mui/material';
+import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
+import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
+import type { BankAccount, Transaction } from '../lib/types';
 
 function formatCents(cents: number) {
   const sign = cents < 0 ? '-' : '';
@@ -23,6 +25,8 @@ function parseCentsInput(input: string) {
 export default function TransactionsPage() {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [entitiesMap, setEntitiesMap] = useState<Record<string,string>>({});
+  const [accountsById, setAccountsById] = useState<Record<string, BankAccount>>({});
+  const [accountIdsByEntityId, setAccountIdsByEntityId] = useState<Record<string, string[]>>({});
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [anchorPromptOpen, setAnchorPromptOpen] = useState(false);
@@ -37,13 +41,20 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     async function load() {
-      const arr = await getAllTransactions();
+      const [arr, es, accounts] = await Promise.all([getAllTransactions(), getAllEntities(), getAllBankAccounts()]);
       arr.sort((a,b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
       setTxs(arr);
-      const es = await getAllEntities();
-      const m: Record<string,string> = {};
-      for (const e of es) m[e.id] = e.name || e.bankName || '__unknown__';
-      setEntitiesMap(m);
+      const entityMap: Record<string,string> = {};
+      for (const e of es) entityMap[e.id] = e.name;
+      setEntitiesMap(entityMap);
+      const accountMap: Record<string, BankAccount> = {};
+      const groupedAccountIds: Record<string, string[]> = {};
+      for (const account of accounts) {
+        accountMap[account.id] = account;
+        groupedAccountIds[account.entityId] = [...(groupedAccountIds[account.entityId] ?? []), account.id];
+      }
+      setAccountsById(accountMap);
+      setAccountIdsByEntityId(groupedAccountIds);
     }
     load();
   }, []);
@@ -82,7 +93,11 @@ export default function TransactionsPage() {
 
   const filtered = useMemo(() => {
     return txs.filter(t => {
-      if (filterEntity && t.entityId !== filterEntity) return false;
+      if (filterEntity) {
+        const accountId = resolveTransactionBankAccountId(t);
+        const allowedAccounts = accountIdsByEntityId[filterEntity] ?? [];
+        if (!accountId || !allowedAccounts.includes(accountId)) return false;
+      }
       if (filterDateFrom && parseDateStringToMs(t.date) < parseDateStringToMs(filterDateFrom)) return false;
       if (filterDateTo && parseDateStringToMs(t.date) > parseDateStringToMs(filterDateTo)) return false;
       const amt = t.amount;
@@ -96,7 +111,7 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [txs, filterEntity, filterDateFrom, filterDateTo, filterAmountMin, filterAmountMax]);
+  }, [txs, filterEntity, filterDateFrom, filterDateTo, filterAmountMin, filterAmountMax, accountIdsByEntityId]);
 
   const handleCreateMissingAnchorGroup = async () => {
     if (pendingGroupIds.length === 0) return;
@@ -148,30 +163,68 @@ export default function TransactionsPage() {
         <TextField type="number" slotProps={{ htmlInput: { step: '0.01' } }} value={filterAmountMax} onChange={e => setFilterAmountMax(e.target.value)} label="Max (€)" />
       </Stack>
 
-      <Stack spacing={1}>
-        {filtered.map(t => (
-          <Card key={t.id} variant="outlined">
-            <CardActionArea onClick={() => toggleSelect(t.id)} sx={{ px: 1.25, py: 1.1 }}>
-              <CardContent sx={{ p: 1 }}>
-                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{formatCents(t.amount)}</Typography>
-                    <Typography variant="body2" color="text.secondary">{t.date} {t.entityId ? ` — ${entitiesMap[t.entityId]}` : ''}</Typography>
-                  </Box>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body2" className="text-sm">{t.description ?? ''}</Typography>
-                    {selected[t.id] ? <Chip label="Selected" color="primary" size="small" sx={{ mt: 1 }} /> : null}
-                  </Box>
-                </Stack>
-              </CardContent>
-            </CardActionArea>
-          </Card>
-        ))}
+      <Stack spacing={1.25}>
+        {filtered.map((t, index) => {
+          const isOutgoing = t.amount < 0;
+          const accountId = resolveTransactionBankAccountId(t);
+          const account = accountId ? accountsById[accountId] : null;
+          const entityName = account ? (entitiesMap[account.entityId] ?? 'Unknown') : '';
+
+          return (
+            <React.Fragment key={t.id}>
+              <Card
+                variant="outlined"
+                sx={{
+                  outline: selected[t.id] ? '2px solid' : undefined,
+                  outlineColor: selected[t.id] ? 'primary.main' : undefined,
+                }}
+              >
+                <CardActionArea onClick={() => toggleSelect(t.id)}>
+                  <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box sx={{
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      bgcolor: isOutgoing ? 'error.light' : 'success.light',
+                      color: isOutgoing ? 'error.dark' : 'success.dark',
+                    }}>
+                      {isOutgoing ? <ArrowDownwardRoundedIcon /> : <ArrowUpwardRoundedIcon />}
+                    </Box>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography sx={{ fontWeight: 600 }} noWrap>
+                        {t.date}{entityName ? ` · ${entityName}` : ''}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {t.description || 'No description'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+                      <Typography sx={{ fontWeight: 600, color: isOutgoing ? 'error.main' : 'success.main' }}>
+                        {formatCents(t.amount)}
+                      </Typography>
+                      <Typography variant="body2" color={isOutgoing ? 'error.main' : 'success.main'}>
+                        {isOutgoing ? 'Outgoing' : 'Incoming'}
+                      </Typography>
+                      {selected[t.id] ? <Chip label="Selected" color="primary" size="small" sx={{ mt: 0.5 }} /> : null}
+                    </Box>
+                  </CardContent>
+                </CardActionArea>
+              </Card>
+              {index < filtered.length - 1 ? <Divider /> : null}
+            </React.Fragment>
+          );
+        })}
       </Stack>
 
       {selectedIds.length > 0 && (
         <Box sx={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: `calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 12px)`, zIndex: 1400 }}>
-          <Button variant="contained" color="primary" onClick={handleCreateGroup} sx={{ borderRadius: 999, px: 3, py: 1.25 }}> {creating ? 'Creating...' : 'Create Group Exchange'} </Button>
+          <Button variant="contained" color="primary" onClick={handleCreateGroup} sx={{ borderRadius: 999, px: 3, py: 1.25 }}>
+            {creating ? 'Creating...' : 'Create Group Exchange'}
+          </Button>
         </Box>
       )}
 

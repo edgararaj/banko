@@ -20,7 +20,7 @@ export function parseDateStringToMs(dateStr: string | undefined | null): number 
   if (dmy) {
     const day = parseInt(dmy[1], 10);
     const month = parseInt(dmy[2], 10);
-    let year = dmy[3].length === 2 ? 2000 + parseInt(dmy[3], 10) : parseInt(dmy[3], 10);
+    const year = dmy[3].length === 2 ? 2000 + parseInt(dmy[3], 10) : parseInt(dmy[3], 10);
     return Date.UTC(year, month - 1, day);
   }
   // dd-mm without year -> assume current year

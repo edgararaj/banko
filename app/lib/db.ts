@@ -197,11 +197,17 @@ export async function getGroupExpenseById(id: string): Promise<GroupExpense | un
 }
 
 export async function deleteGroupExpense(id: string): Promise<void> {
-  // mark as deleted per spec
-  const g = await getGroupExpenseById(id);
-  if (!g) return;
-  g.status = 'deleted';
-  await updateGroupExpense(g);
+  // Permanently remove the group expense from the store
+  const db = await openDB();
+  const tx = db.transaction('group_expenses', 'readwrite');
+  const store = tx.objectStore('group_expenses');
+  const req = store.delete(id);
+  req.onsuccess = () => console.debug('db: group expense deleted', id);
+  req.onerror = () => console.error('db: group expense delete failed', req.error);
+  await new Promise((res, rej) => {
+    tx.oncomplete = () => res(undefined);
+    tx.onerror = () => rej(tx.error);
+  });
 }
 
 export async function getTransactionsByDateRange(startISO: string, endISO: string) {
@@ -227,5 +233,69 @@ export async function getTransactionsByDateRange(startISO: string, endISO: strin
       } catch (err) { rej(err); }
     };
     r.onerror = () => rej(r.error);
+  });
+}
+
+export async function createGroupFromTransactionIds(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  const db = await openDB();
+  const tx = db.transaction(['transactions', 'group_expenses'], 'readwrite');
+  const tStore = tx.objectStore('transactions');
+  const gStore = tx.objectStore('group_expenses');
+
+  // load selected transactions
+  const selected: Transaction[] = [];
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    const req = tStore.get(id);
+    // wrap in promise
+    // @ts-ignore runtime DOM IDBRequest shape
+    const obj = await new Promise<Transaction | undefined>((res, rej) => {
+      req.onsuccess = () => res(req.result as Transaction | undefined);
+      req.onerror = () => rej(req.error);
+    });
+    if (obj) selected.push(obj);
+  }
+
+  if (selected.length === 0) return;
+
+  // determine anchor: choose a transaction with negative amount and largest absolute value
+  let anchor: Transaction | undefined = undefined;
+  for (const s of selected) {
+    if (s.amount < 0) {
+      if (!anchor || Math.abs(s.amount) > Math.abs(anchor.amount)) anchor = s;
+    }
+  }
+
+  if (!anchor) {
+    // no explicit anchor in selection; try to find a negative transaction in DB near these dates
+    // fallback: abort
+    throw new Error('No anchor transaction (negative amount) found in selection');
+  }
+
+  const participantIds = selected.map(s => s.id).filter(id => id !== anchor!.id);
+
+  const dates = selected.map(s => s.date).filter(Boolean);
+  const start = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : anchor.date;
+  const end = dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : anchor.date;
+
+  const ge: GroupExpense = {
+    id: crypto.randomUUID(),
+    anchorTransactionId: anchor.id,
+    participantTransactionIds: participantIds,
+    dateWindow: { start, end },
+    totalAmount: Math.abs(anchor.amount),
+    extraExpenses: 0,
+    friendCount: participantIds.length > 0 ? participantIds.length : 0,
+    status: 'modified',
+  };
+
+  const req = gStore.add(ge);
+  req.onsuccess = () => console.debug('db: created group from selection', ge.id);
+  req.onerror = () => console.error('db: create group failed', req.error);
+
+  await new Promise((res, rej) => {
+    tx.oncomplete = () => res(undefined);
+    tx.onerror = () => rej(tx.error);
   });
 }

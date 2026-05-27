@@ -1,8 +1,9 @@
 'use client'
 
 import React, { useEffect, useState } from 'react';
-import { getAllEntities, getAllTransactions, getAllGroupExpenses } from '../../app/lib/db';
-import type { Entity } from '../../app/lib/types';
+import { getAllEntities, getAllTransactions, getAllGroupExpenses } from '../lib/db';
+import type { Entity } from '../lib/types';
+import { Box, Card, CardContent, Stack, Typography } from '@mui/material';
 
 function formatCents(cents: number) {
   const sign = cents < 0 ? '-' : '';
@@ -54,28 +55,29 @@ export default function EntitiesPage() {
   }, []);
 
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-semibold mb-4">Entities</h1>
-      <div className="grid gap-3">
+    <Box sx={{ p: 2 }}>
+      <Typography variant="h5" sx={{ mb: 2 }}>Entities</Typography>
+
+      <Stack spacing={2}>
         {entities.map(e => {
           const t = totals[e.id] ?? { sent:0, received:0, groups:0 };
           return (
-            <div key={e.id} className="p-3 border rounded">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{e.name || e.bankName}</div>
-                  <div className="text-sm text-zinc-600">{e.bankName}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm">Sent: <strong>{formatCents(t.sent)}</strong></div>
-                  <div className="text-sm">Received: <strong>{formatCents(t.received)}</strong></div>
-                  <div className="text-sm">Linked groups: <strong>{t.groups}</strong></div>
-                </div>
-              </div>
-            </div>
+            <Card key={e.id} variant="outlined">
+              <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box>
+                  <Typography sx={{ fontWeight: 600 }}>{e.name || e.bankName}</Typography>
+                  {e.bankName ? <Typography variant="body2" color="text.secondary">{e.bankName}</Typography> : null}
+                </Box>
+                <Box sx={{ textAlign: 'right' }}>
+                  <Typography variant="body2">Sent: <strong>{formatCents(t.sent)}</strong></Typography>
+                  <Typography variant="body2">Received: <strong>{formatCents(t.received)}</strong></Typography>
+                  <Typography variant="body2">Linked groups: <strong>{t.groups}</strong></Typography>
+                </Box>
+              </CardContent>
+            </Card>
           );
         })}
-      </div>
-    </div>
+      </Stack>
+    </Box>
   );
 }

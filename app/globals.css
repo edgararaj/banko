@@ -1,11 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0b1221; /* dark navy */
-  --foreground: #ffffff; /* white text */
-  --muted: #9aa4b2;
-  --accent: #60a5fa;
+  --background: #f4f7fb;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --accent: #2563eb;
+  --bottom-nav-height: 66px;
   --font-sans: var(--font-geist-sans);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #070d1a;
+    --foreground: #e5edf7;
+    --muted: #94a3b8;
+    --accent: #60a5fa;
+  }
 }
 
 @theme inline {
@@ -19,6 +29,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   margin: 0;
+  min-height: 100dvh;
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
 }
 
 /* Consistent typography */
@@ -37,3 +49,11 @@ body, p, .app-body { font-size: 0.95rem; color: var(--foreground); }
 
 /* Ensure nav spacing so content not overlapped */
 .main-with-bottom-nav { padding-bottom: 6rem; }
+
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}

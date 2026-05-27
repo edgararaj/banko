@@ -12,7 +12,7 @@ function formatEuro(cents: number) {
   return `${sign}${euros},${rem} €`;
 }
 
-export default function CalendarHeatmapPage() {
+export default function CalendarHeatmap() {
   const [txs, setTxs] = useState<any[]>([]);
   useEffect(() => {
     async function load() {
@@ -23,12 +23,12 @@ export default function CalendarHeatmapPage() {
   }, []);
 
   const { dayKeys, totals, maxAbs } = useMemo(() => {
-    // Build last 365 days array
+    // Build last 120 days array
     const days: Date[] = [];
     const today = new Date();
     // use local today but align to UTC midnight for consistency
     const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-    for (let i = 364; i >= 0; i--) {
+    for (let i = 120; i >= 0; i--) {
       const d = new Date(end.getTime() - i * 24 * 60 * 60 * 1000);
       days.push(d);
     }
@@ -64,11 +64,10 @@ export default function CalendarHeatmapPage() {
   }
 
   return (
-    <div className="p-4">
-      <h1 className="app-h1 mb-4">Calendar Heatmap</h1>
-      <p className="mb-4 small-muted">Last 365 days — green = received, red = spent. Hover for amounts.</p>
+    <div className="">
+      <p className="mb-4 small-muted">Last 120 days. Hover for amounts.</p>
 
-      <div className="flex gap-3 items-start">
+      <div className="flex flex-col gap-3 items-start">
         <div style={{ display: 'flex', gap: 4 }}>
           {/* weeks as vertical columns */}
           {weeks.map((col, ci) => (
@@ -96,8 +95,8 @@ export default function CalendarHeatmapPage() {
           ))}
         </div>
 
-        <div className="ml-4">
-          <div className="mb-2 font-medium">Legend</div>
+        <div>
+          <div className="mb-1 font-medium">Legend</div>
           <div className="flex items-center gap-2 mb-1"><div style={{ width: 16, height: 16, background: 'rgba(16,185,129,0.9)', borderRadius: 3 }} /> <div>Money received (green)</div></div>
           <div className="flex items-center gap-2 mb-1"><div style={{ width: 16, height: 16, background: 'rgba(239,68,68,0.9)', borderRadius: 3 }} /> <div>Money spent (red)</div></div>
           <div className="mt-3 text-sm small-muted">Max absolute daily amount: {formatEuro(maxAbs)}</div>

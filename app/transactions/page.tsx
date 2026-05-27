@@ -1,9 +1,9 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAllTransactions, getAllEntities } from '../lib/db';
+import { getAllTransactions, getAllEntities, createGroupFromTransactionIds } from '../lib/db';
 import { parseDateStringToMs } from '../lib/format';
-import TransactionsList from '../components/TransactionsList';
+import { Box, Button, Card, CardActionArea, CardContent, Stack, TextField, Typography, Chip, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import type { Transaction } from '../lib/types';
 
 function formatCents(cents: number) {
@@ -17,7 +17,8 @@ function formatCents(cents: number) {
 export default function TransactionsPage() {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [entitiesMap, setEntitiesMap] = useState<Record<string,string>>({});
-  const [creatingId, setCreatingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
 
   const [filterEntity, setFilterEntity] = useState<string>('');
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
@@ -28,7 +29,6 @@ export default function TransactionsPage() {
   useEffect(() => {
     async function load() {
       const arr = await getAllTransactions();
-      // sort descending by date (handle dd-mm-yyyy stored dates)
       arr.sort((a,b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
       setTxs(arr);
       const es = await getAllEntities();
@@ -39,21 +39,26 @@ export default function TransactionsPage() {
     load();
   }, []);
 
-  const handleCreateGroup = async (anchorId: string) => {
-    setCreatingId(anchorId);
+  const toggleSelect = (id: string) => setSelected(s => ({ ...s, [id]: !s[id] }));
+
+  const selectedIds = useMemo(() => Object.entries(selected).filter(([,v])=>v).map(([k])=>k), [selected]);
+
+  const handleCreateGroup = async () => {
+    if (selectedIds.length === 0) return;
+    setCreating(true);
     try {
-      const mod = await import('../../app/lib/inference');
-      const ok = await mod.inferCustomGroup(anchorId, 0);
-      if (ok) {
-        alert('Group created');
-      } else {
-        alert('No valid group created for this anchor');
-      }
+      await createGroupFromTransactionIds(selectedIds);
+      // refresh transactions and clear selection
+      const arr = await getAllTransactions();
+      arr.sort((a,b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
+      setTxs(arr);
+      setSelected({});
+      alert('Group created');
     } catch (err) {
-      console.error('create group failed', err);
-      alert('Failed to create group');
+      console.error(err);
+      alert('Failed to create group: ' + (err instanceof Error ? err.message : ''));    
     } finally {
-      setCreatingId(null);
+      setCreating(false);
     }
   };
 
@@ -76,27 +81,56 @@ export default function TransactionsPage() {
   }, [txs, filterEntity, filterDateFrom, filterDateTo, filterAmountMin, filterAmountMax]);
 
   return (
-    <div className="p-4">
-      <h1 className="app-h1 mb-4">Transactions</h1>
-      <div className="mb-4 grid gap-2 grid-cols-1 md:grid-cols-4">
-        <select value={filterEntity} onChange={e => setFilterEntity(e.target.value)} className="border p-2 rounded">
-          <option value="">All entities</option>
-          {Object.entries(entitiesMap).map(([id, name]) => (
-            <option key={id} value={id}>{name}</option>
-          ))}
-        </select>
-        <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="border p-2 rounded" placeholder="From" />
-        <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="border p-2 rounded" placeholder="To" />
-        <div className="flex gap-2">
-          <input type="number" step="0.01" value={filterAmountMin} onChange={e => setFilterAmountMin(e.target.value)} className="border p-2 rounded" placeholder="Min (€)" />
-          <input type="number" step="0.01" value={filterAmountMax} onChange={e => setFilterAmountMax(e.target.value)} className="border p-2 rounded" placeholder="Max (€)" />
-        </div>
-      </div>
+    <Box sx={{ p: 2 }}>
+      <Typography variant="h5" sx={{ mb: 2 }}>Transactions</Typography>
 
-      <div className="overflow-x-auto">
-        {/* Reuse TransactionsList component */}
-        <TransactionsList transactions={filtered} entitiesMap={entitiesMap} createGroupHandler={handleCreateGroup} />
-      </div>
-    </div>
+      <Stack spacing={2} sx={{ mb: 2, flexDirection: { xs: 'column', md: 'row' } }}>
+        <FormControl sx={{ minWidth: 160 }}>
+          <InputLabel id="entity-filter-label">Entity</InputLabel>
+          <Select
+            labelId="entity-filter-label"
+            value={filterEntity}
+            label="Entity"
+            onChange={(e) => setFilterEntity(e.target.value as string)}
+          >
+            <MenuItem value=""><em>All entities</em></MenuItem>
+            {Object.entries(entitiesMap).map(([id, name]) => (
+              <MenuItem key={id} value={id}>{name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <TextField type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} label="From" slotProps={{ inputLabel: { shrink: true } }} />
+        <TextField type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} label="To" slotProps={{ inputLabel: { shrink: true } }} />
+        <TextField type="number" slotProps={{ htmlInput: { step: '0.01' } }} value={filterAmountMin} onChange={e => setFilterAmountMin(e.target.value)} label="Min (€)" />
+        <TextField type="number" slotProps={{ htmlInput: { step: '0.01' } }} value={filterAmountMax} onChange={e => setFilterAmountMax(e.target.value)} label="Max (€)" />
+      </Stack>
+
+      <Stack spacing={1}>
+        {filtered.map(t => (
+          <Card key={t.id} variant="outlined">
+            <CardActionArea onClick={() => toggleSelect(t.id)} sx={{ px: 1.25, py: 1.1 }}>
+              <CardContent sx={{ p: 1 }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{formatCents(t.amount)}</Typography>
+                    <Typography variant="body2" color="text.secondary">{t.date} {t.entityId ? ` — ${entitiesMap[t.entityId]}` : ''}</Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="body2" className="text-sm">{t.description ?? ''}</Typography>
+                    {selected[t.id] ? <Chip label="Selected" color="primary" size="small" sx={{ mt: 1 }} /> : null}
+                  </Box>
+                </Stack>
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        ))}
+      </Stack>
+
+      {selectedIds.length > 0 && (
+        <Box sx={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: `calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 12px)`, zIndex: 1400 }}>
+          <Button variant="contained" color="primary" onClick={handleCreateGroup} sx={{ borderRadius: 999, px: 3, py: 1.25 }}> {creating ? 'Creating...' : 'Create Group Exchange'} </Button>
+        </Box>
+      )}
+    </Box>
   );
 }

@@ -1,58 +1,99 @@
 'use client'
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React from 'react';
+import { BottomNavigation, BottomNavigationAction, Box, IconButton, Paper, Tooltip } from '@mui/material';
+import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
+import HubRoundedIcon from '@mui/icons-material/HubRounded';
+import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
+import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
+import { useRouter } from 'next/navigation';
+import { useAppColorMode } from './AppThemeProvider';
+
+const items = [
+  { href: '/', label: 'Home', icon: <HomeRoundedIcon fontSize="small" /> },
+  { href: '/transactions', label: 'Txs', icon: <ReceiptLongRoundedIcon fontSize="small" /> },
+  { href: '/entities', label: 'Entities', icon: <HubRoundedIcon fontSize="small" /> },
+  { href: '/group-expenses', label: 'Groups', icon: <GroupsRoundedIcon fontSize="small" /> },
+];
 
 export default function BottomNav() {
   const path = usePathname();
-  const items = [
-    { href: '/', label: 'Home', icon: HomeIcon },
-    { href: '/transactions', label: 'Txs', icon: ListIcon },
-    { href: '/entities', label: 'Entities', icon: UsersIcon },
-    { href: '/group-expenses', label: 'Groups', icon: GroupIcon },
-  ];
+  const router = useRouter();
+  const { mode, toggleMode } = useAppColorMode();
+  const selectedIndex = items.findIndex((item) => (item.href === '/' ? path === '/' : path.startsWith(item.href)));
 
   return (
-    <nav className="fixed left-1/2 -translate-x-1/2 bottom-4 z-50">
-      <div className="bg-[#0b1221]/95 backdrop-blur rounded-full px-4 py-2 shadow-lg flex gap-6 items-center text-white">
-        {items.map(it => (
-          <Link key={it.href} href={it.href} className={`flex flex-col items-center text-sm ${path === it.href ? 'text-blue-600' : 'text-zinc-700'}`}>
-            <span className="w-6 h-6">{React.createElement(it.icon)}</span>
-            <span className="text-xs">{it.label}</span>
-          </Link>
-        ))}
-      </div>
-    </nav>
-  );
-}
-
-function HomeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-6 h-6">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 11.5L12 4l9 7.5v6a1 1 0 0 1-1 1h-5v-5H9v5H4a1 1 0 0 1-1-1v-6z" />
-    </svg>
-  );
-}
-function ListIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-6 h-6">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-    </svg>
-  );
-}
-function UsersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-6 h-6">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M17 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function GroupIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-6 h-6">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zM6 21v-1a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1" />
-    </svg>
+    <Paper
+      elevation={0}
+      sx={{
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        pb: 'env(safe-area-inset-bottom)',
+        bgcolor: (theme) =>
+          theme.palette.mode === 'dark' ? 'rgba(14, 22, 40, 1)' : 'rgba(255, 255, 255, 1)',
+        borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+        zIndex: (theme) => theme.zIndex.appBar,
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <BottomNavigation
+          showLabels
+          value={selectedIndex < 0 ? 0 : selectedIndex}
+          onChange={(_, nextValue) => {
+            const target = items[nextValue];
+            if (target && target.href !== path) router.push(target.href);
+          }}
+          sx={{
+            flex: 1,
+            minHeight: 66,
+            bgcolor: 'transparent',
+            '& .MuiBottomNavigationAction-root': {
+              minWidth: 62,
+              maxWidth: 'none',
+              py: 0.75,
+            },
+            '& .MuiBottomNavigationAction-label': {
+              fontSize: 12,
+              lineHeight: 1.1,
+            },
+          }}
+        >
+          {items.map((it) => (
+            <BottomNavigationAction key={it.href} label={it.label} icon={it.icon} />
+          ))}
+        </BottomNavigation>
+        <Box
+          sx={{
+            minHeight: 66,
+            px: 1,
+            display: 'flex',
+            alignItems: 'center',
+            borderLeft: (theme) => `1px solid ${theme.palette.divider}`,
+            bgcolor: 'transparent',
+          }}
+        >
+          <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+            <IconButton
+              aria-label="Toggle color mode"
+              onClick={toggleMode}
+              sx={{
+                width: 40,
+                height: 40,
+                color: 'text.secondary',
+                bgcolor: 'transparent',
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              {mode === 'dark' ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </Box>
+    </Paper>
   );
 }

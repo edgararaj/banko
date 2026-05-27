@@ -24,31 +24,26 @@ function formatCents(cents: number) {
 export default function TransactionsList(props: Props) {
   // ensure dark-mode container class
   const { transactions: txsProp, entitiesMap: emapProp, selectable, onConfirm, createGroupHandler } = props;
-  const [txs, setTxs] = useState<Transaction[]>(txsProp || []);
-  const [entitiesMap, setEntitiesMap] = useState<Record<string,string>>(emapProp || {});
+  const [fetchedTxs, setFetchedTxs] = useState<Transaction[] | null>(null);
+  const [fetchedEntities, setFetchedEntities] = useState<Record<string,string> | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    if (txsProp) setTxs(txsProp);
-    if (emapProp) setEntitiesMap(emapProp);
-  }, [txsProp, emapProp]);
 
   useEffect(() => {
     async function load() {
       if (!txsProp) {
         const arr = await getAllTransactions();
         arr.sort((a,b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
-        setTxs(arr);
+        setFetchedTxs(arr);
       }
       if (!emapProp) {
         const es = await getAllEntities();
         const m: Record<string,string> = {};
         for (const e of es) m[e.id] = e.name || e.bankName || '__unknown__';
-        setEntitiesMap(m);
+        setFetchedEntities(m);
       }
     }
     load();
-  }, []);
+  }, [txsProp, emapProp]);
 
   const toggle = (id: string) => {
     setSelected(s => ({ ...s, [id]: !s[id] }));
@@ -56,14 +51,17 @@ export default function TransactionsList(props: Props) {
 
   const handleConfirm = () => {
     if (!onConfirm) return;
-    const ids = Object.entries(selected).filter(([_,v])=>v).map(([k])=>k);
+    const ids = Object.entries(selected).filter(([,v])=>v).map(([k])=>k);
     onConfirm(ids);
   };
+
+  const displayTxs = txsProp ?? fetchedTxs ?? [];
+  const displayEntities = emapProp ?? fetchedEntities ?? {};
 
   return (
     <div className="app-body">
       <div className={selectable ? 'max-h-[50vh] overflow-auto' : 'overflow-x-auto'}>
-        <table className="w-full table-auto border-collapse text-white">
+        <table className="w-full table-auto border-collapse">
           <thead>
             <tr className="text-left">
               <th className="p-2">Date</th>
@@ -74,11 +72,11 @@ export default function TransactionsList(props: Props) {
             </tr>
           </thead>
           <tbody>
-            {txs.map(t => (
+            {displayTxs.map(t => (
               <tr key={t.id} className="border-t">
                 <td className="p-2 align-top">{formatDateDisplay(t.date)}</td>
                 <td className="p-2 align-top">{formatCents(t.amount)}</td>
-                <td className="p-2 align-top">{t.entityId ? entitiesMap[t.entityId] : '__unknown__'}</td>
+                <td className="p-2 align-top">{t.entityId ? displayEntities[t.entityId] : '__unknown__'}</td>
                 <td className="p-2 align-top"><div className="text-sm text-zinc-700">{t.description ?? ''}</div></td>
                 <td className="p-2 align-top">
                   {selectable ? (

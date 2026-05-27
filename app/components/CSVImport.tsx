@@ -175,9 +175,7 @@ export default function CSVImport() {
   }
 
   return (
-    <div className="w-full max-w-xl p-4 bg-[#0b1221] rounded shadow">
-      <h2 className="app-h2">CSV Import</h2>
-      <p className="small-muted">Upload bank CSV (processed locally). Dedupe by date+amount+description.</p>
+    <div>
       <input type="file" accept="text/csv" onChange={handleFile} className="mt-2 bg-[#071022] text-white border rounded p-2" />
       <div className="mt-2 text-sm small-muted">{status}</div>
     </div>

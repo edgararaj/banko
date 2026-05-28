@@ -3,7 +3,9 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import BottomNav from './components/BottomNav';
 import AppThemeProvider from './components/AppThemeProvider';
-import { Typography } from "@mui/material";
+import { Box, Typography, IconButton } from "@mui/material";
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
+import Link from 'next/link';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -42,7 +44,20 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <AppThemeProvider>
-          <Typography variant="h3" sx={{ mt: 2, ml:2, mr: 2 }}><b>Banko</b></Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2 }}>
+            <Typography variant="h3"><b>Banko</b></Typography>
+            <Link href="/settings" style={{ textDecoration: 'none' }}>
+              <IconButton
+                aria-label="Settings"
+                sx={{
+                  color: 'text.secondary',
+                  '&:hover': { bgcolor: 'action.hover' },
+                }}
+              >
+                <SettingsRoundedIcon />
+              </IconButton>
+            </Link>
+          </Box>
           <div className="flex-1">
             {children}
           </div>

@@ -248,29 +248,33 @@ export default function GroupExpensesPage() {
           </Button>
           <Button
             variant="contained"
-            color="success"
+            color={ed.status === 'completed' ? 'inherit' : 'success'}
+            sx={ed.status === 'completed' ? { bgcolor: 'action.disabledBackground', color: 'text.disabled' } : {}}
             onClick={async () => {
               try {
                 const toSave = {
                   ...ed,
                   extraExpenses: parsedExtraExpenses,
-                  status: 'completed' as const,
+                  status: ed.status === 'completed' ? ('modified' as const) : ('completed' as const),
                 };
                 await updateGroupExpense(toSave);
                 setEditId(null);
                 router.push('/group-expenses');
               } catch (err) {
                 console.error(err);
-                alert('Mark complete failed');
+                alert('Failed to update status');
               }
             }}
           >
-            Mark complete
+            {ed.status === 'completed' ? 'Mark uncomplete' : 'Mark complete'}
           </Button>
           <Button
             variant="contained"
             color="error"
             onClick={async () => {
+              if (!confirm('Are you sure you want to delete this group expense? This action cannot be undone.')) {
+                return;
+              }
               try {
                 await deleteGroupExpense(ed.id);
                 setEditId(null);

@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Autocomplete, Box, Button, Card, CardContent, Divider, Stack, TextField, Typography, Chip } from '@mui/material';
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
-import { getAllEntities, getAllTransactions, getAllBankAccounts, updateEntity, updateBankAccount, addBankAccountIfNotExists, resolveTransactionBankAccountId } from '../../lib/db';
+import { getAllEntities, getAllTransactions, getAllBankAccounts, updateEntity, updateBankAccount, addBankAccountIfNotExists, resolveTransactionBankAccountId, deleteEntity } from '../../lib/db';
 import type { Entity, BankAccount, Transaction } from '../../lib/types';
 import { parseDateStringToMs } from '../../lib/format';
 
@@ -33,6 +33,23 @@ export default function EntityDetailPage() {
     const allAccounts = await getAllBankAccounts();
     setLinkedAccounts(allAccounts.filter((a) => a.entityId === entityId));
     setUnlinkedAccounts(allAccounts.filter((a) => a.entityId !== entityId));
+  }
+
+  async function reloadAccountsAndTransactions() {
+    const [allAccounts, allTransactions] = await Promise.all([
+      getAllBankAccounts(),
+      getAllTransactions(),
+    ]);
+
+    const currentAccounts = allAccounts.filter((a) => a.entityId === entityId);
+    const currentAccountIds = new Set(currentAccounts.map((a) => a.id));
+    const relevantTransactions = allTransactions
+      .filter((t) => currentAccountIds.has(resolveTransactionBankAccountId(t) ?? ''))
+      .sort((a, b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
+
+    setLinkedAccounts(currentAccounts);
+    setUnlinkedAccounts(allAccounts.filter((a) => a.entityId !== entityId));
+    setTransactions(relevantTransactions);
   }
 
   useEffect(() => {
@@ -83,10 +100,28 @@ export default function EntityDetailPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!confirm('Are you sure you want to delete this entity? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await deleteEntity(entityId);
+      router.push('/entities');
+    } catch (error) {
+      console.error(error);
+      if (error instanceof Error && error.message === 'ENTITY_HAS_LINKED_ACCOUNTS') {
+        alert('Cannot delete entity with linked bank accounts');
+      } else {
+        alert('Delete failed');
+      }
+    }
+  };
+
   const handleUnlinkAccount = async (account: BankAccount) => {
     try {
       await updateBankAccount({ ...account, entityId: '' });
-      await reloadAccounts();
+      await reloadAccountsAndTransactions();
     } catch (error) {
       console.error(error);
       alert('Failed to unlink bank account');
@@ -107,7 +142,7 @@ export default function EntityDetailPage() {
         // Existing account: re-link it to this entity
         await updateBankAccount({ ...account, entityId });
       }
-      await reloadAccounts();
+      await reloadAccountsAndTransactions();
     } catch (error) {
       console.error(error);
       alert('Failed to link bank account');
@@ -194,6 +229,9 @@ export default function EntityDetailPage() {
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ mb: 2 }}>
         <Button variant="contained" onClick={handleSave}>Save</Button>
+        {linkedAccounts.length === 0 && (
+          <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
+        )}
       </Stack>
 
       <Typography variant="h6" sx={{ mb: 1 }}>Transactions</Typography>

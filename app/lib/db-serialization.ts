@@ -4,11 +4,9 @@ import {
   getAllEntities,
   getAllBankAccounts,
   getAllGroupExpenses,
-  addTransactionIfNotExists,
-  addEntityIfNotExists,
-  addBankAccountIfNotExists,
-  createGroupExpense,
+  openDB,
 } from './db';
+import { normalizeEntity, normalizeBankAccount, normalizeTransaction } from './db/db-core';
 
 export interface DatabaseSnapshot {
   version: number;
@@ -43,43 +41,88 @@ export async function exportDatabaseAsJson(): Promise<string> {
 }
 
 export async function importDatabaseFromJson(jsonString: string): Promise<void> {
-  let snapshot: DatabaseSnapshot;
+  let snapshot: Partial<DatabaseSnapshot>;
 
   try {
     snapshot = JSON.parse(jsonString);
-  } catch (error) {
+  } catch {
     throw new Error('Invalid JSON format');
   }
 
-  if (!snapshot.version || !Array.isArray(snapshot.transactions)) {
+  if (
+    typeof snapshot !== 'object' ||
+    snapshot === null ||
+    !Array.isArray(snapshot.entities) ||
+    !Array.isArray(snapshot.bankAccounts) ||
+    !Array.isArray(snapshot.transactions) ||
+    !Array.isArray(snapshot.groupExpenses)
+  ) {
     throw new Error('Invalid database snapshot format');
   }
 
-  // Import entities first (they need to exist before bank accounts)
-  for (const entity of snapshot.entities || []) {
-    // This will skip if it already exists
-    await addEntityIfNotExists(entity.name);
+  const db = await openDB();
+  const tx = db.transaction(
+    ['entities', 'linked_accounts', 'transactions', 'group_expenses', 'transaction_index'],
+    'readwrite'
+  );
+
+  const entitiesStore = tx.objectStore('entities');
+  const accountsStore = tx.objectStore('linked_accounts');
+  const transactionsStore = tx.objectStore('transactions');
+  const groupsStore = tx.objectStore('group_expenses');
+  const indexStore = tx.objectStore('transaction_index');
+
+  await new Promise<void>((resolve, reject) => {
+    const req = entitiesStore.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const req = accountsStore.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const req = transactionsStore.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const req = groupsStore.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const req = indexStore.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  for (const entity of snapshot.entities) {
+    entitiesStore.put(normalizeEntity(entity as Entity));
   }
 
-  // Import bank accounts (they reference entities)
-  for (const bankAccount of snapshot.bankAccounts || []) {
-    await addBankAccountIfNotExists(bankAccount.name, bankAccount.entityId);
+  for (const bankAccount of snapshot.bankAccounts) {
+    accountsStore.put(normalizeBankAccount(bankAccount as BankAccount));
   }
 
-  // Import transactions
-  for (const transaction of snapshot.transactions || []) {
-    await addTransactionIfNotExists(transaction);
+  for (const transaction of snapshot.transactions) {
+    transactionsStore.put(normalizeTransaction(transaction as Transaction));
   }
 
-  // Import group expenses
-  for (const groupExpense of snapshot.groupExpenses || []) {
-    try {
-      await createGroupExpense(groupExpense);
-    } catch (error) {
-      // Skip if group expense already exists
-      console.debug('Group expense already exists or failed to import:', groupExpense.id);
-    }
+  for (const groupExpense of snapshot.groupExpenses) {
+    groupsStore.put(groupExpense as GroupExpense);
   }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('Import aborted'));
+  });
 }
 
 export function downloadJson(jsonString: string, filename: string = 'banko-database.json'): void {

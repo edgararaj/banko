@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { getAllTransactions, getAllEntities, getAllBankAccounts, createGroupFromTransactionIds, resolveTransactionBankAccountId } from '../lib/db';
+import TransactionsBulkActions from '../components/TransactionsBulkActions';
 import { parseDateStringToMs } from '../lib/format';
 import { Box, Button, Card, CardActionArea, CardContent, Stack, TextField, Typography, Chip, FormControl, InputLabel, Select, MenuItem, Dialog, DialogActions, DialogContent, DialogTitle, Divider } from '@mui/material';
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
@@ -220,13 +221,7 @@ export default function TransactionsPage() {
         })}
       </Stack>
 
-      {selectedIds.length > 0 && (
-        <Box sx={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: `calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 12px)`, zIndex: 1400 }}>
-          <Button variant="contained" color="primary" onClick={handleCreateGroup} sx={{ borderRadius: 999, px: 3, py: 1.25 }}>
-            {creating ? 'Creating...' : 'Create Group Exchange'}
-          </Button>
-        </Box>
-      )}
+      <TransactionsBulkActions selectedIds={selectedIds} clearSelection={() => setSelected({})} refresh={refreshTransactions} />
 
       <Dialog open={anchorPromptOpen} onClose={() => setAnchorPromptOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>Enter anchor amount</DialogTitle>

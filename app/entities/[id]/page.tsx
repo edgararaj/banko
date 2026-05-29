@@ -2,10 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Autocomplete, Box, Button, Card, CardContent, Divider, Stack, TextField, Typography, Chip } from '@mui/material';
+import { Autocomplete, Box, Button, Card, CardActionArea, CardContent, Divider, Stack, TextField, Typography, Chip } from '@mui/material';
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
 import { getAllEntities, getAllTransactions, getAllBankAccounts, updateEntity, updateBankAccount, addBankAccountIfNotExists, resolveTransactionBankAccountId, deleteEntity } from '../../lib/db';
+import TransactionsBulkActions from '../../components/TransactionsBulkActions';
 import type { Entity, BankAccount, Transaction } from '../../lib/types';
 import { parseDateStringToMs } from '../../lib/format';
 
@@ -78,6 +79,9 @@ export default function EntityDetailPage() {
 
   const incoming = useMemo(() => transactions.filter((t) => t.amount > 0), [transactions]);
   const outgoing = useMemo(() => transactions.filter((t) => t.amount < 0), [transactions]);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const toggleSelect = (id: string) => setSelected(s => ({ ...s, [id]: !s[id] }));
+  const selectedIds = useMemo(() => Object.entries(selected).filter(([,v])=>v).map(([k])=>k), [selected]);
 
   if (!entity) {
     return (
@@ -246,8 +250,15 @@ export default function EntityDetailPage() {
           const isOutgoing = transaction.amount < 0;
           return (
             <React.Fragment key={transaction.id}>
-              <Card variant="outlined">
-                <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Card
+                variant="outlined"
+                sx={{
+                  outline: selected[transaction.id] ? '2px solid' : undefined,
+                  outlineColor: selected[transaction.id] ? 'primary.main' : undefined,
+                }}
+              >
+                <CardActionArea onClick={() => toggleSelect(transaction.id)}>
+                  <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                   <Box sx={{
                     flexShrink: 0,
                     display: 'flex',
@@ -275,13 +286,15 @@ export default function EntityDetailPage() {
                       {isOutgoing ? 'Outgoing' : 'Incoming'}
                     </Typography>
                   </Box>
-                </CardContent>
+                  </CardContent>
+                </CardActionArea>
               </Card>
               {index < transactions.length - 1 ? <Divider /> : null}
             </React.Fragment>
           );
         })}
       </Stack>
+      <TransactionsBulkActions selectedIds={selectedIds} clearSelection={() => setSelected({})} refresh={reloadAccountsAndTransactions} />
     </Box>
   );
 }

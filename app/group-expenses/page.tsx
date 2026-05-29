@@ -50,6 +50,16 @@ function groupAnchorDateMs(group: GroupExpense, txs: Transaction[]) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+function getPrimaryExpenseInfo(group: GroupExpense, txs: Transaction[], linkedAccounts: Record<string, BankAccount>) {
+  const primaryExpense = txs.find((tx) => tx.id === group.expenseTransactionIds?.[0]);
+  const primaryExpenseAccount = primaryExpense ? linkedAccounts[resolveTransactionBankAccountId(primaryExpense) ?? ''] : undefined;
+
+  return {
+    primaryExpenseName: primaryExpense?.description ?? primaryExpense?.id ?? '',
+    primaryExpenseBankName: primaryExpenseAccount?.name ?? '',
+  };
+}
+
 export default function GroupExpensesPage() {
   const [groups, setGroups] = useState<GroupExpense[]>([]);
   const [txs, setTxs] = useState<Transaction[]>([]);
@@ -411,6 +421,7 @@ export default function GroupExpensesPage() {
           .sort((a, b) => groupAnchorDateMs(b, txs) - groupAnchorDateMs(a, txs))
           .map(g => {
           const totals = computeGroupTotals(g, txs);
+          const { primaryExpenseName, primaryExpenseBankName } = getPrimaryExpenseInfo(g, txs, linkedAccounts);
           const balanceExcludingMyShare = balanceExcludingPayer(totals.total, txs, g.refundTransactionIds, g.friendCount, 0);
           const participantCount = participantCountForGroup(g, g.refundTransactionIds);
           const isCompleted = g.status === 'completed';
@@ -430,6 +441,9 @@ export default function GroupExpensesPage() {
                       {formatCents(totals.total)} - {g.status}
                     </Typography>
                   </Stack>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
+                      Primary: {primaryExpenseName}{primaryExpenseBankName ? ` - ${primaryExpenseBankName}` : ''}
+                    </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
                     Participants: {participantCount}
                   </Typography>

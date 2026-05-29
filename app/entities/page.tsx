@@ -45,8 +45,10 @@ export default function EntitiesPage() {
       }
 
       for (const g of groups) {
-        for (const pid of g.participantTransactionIds) {
-          const pt = txs.find(x => x.id === pid);
+        // Track group participation through both expenses and refunds
+        const allGroupTransactionIds = [...g.expenseTransactionIds, ...g.refundTransactionIds];
+        for (const txnId of allGroupTransactionIds) {
+          const pt = txs.find(x => x.id === txnId);
           const accountId = pt ? resolveTransactionBankAccountId(pt) : null;
           if (!accountId) continue;
           const account = accounts.find((item) => item.id === accountId);

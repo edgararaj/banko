@@ -30,11 +30,10 @@ export type GroupExpenseStatus = 'inferred' | 'modified' | 'completed';
 
 export interface GroupExpense {
   id: string; // uuid
-  anchorTransactionId: string;
-  participantTransactionIds: string[]; // reimbursement transaction ids
+  expenseTransactionIds: string[]; // transaction ids for expenses (negative amounts)
+  refundTransactionIds: string[]; // transaction ids for refunds/reimbursements (positive amounts)
   dateWindow: DateWindow; // ±1 day window
-  totalAmount: Cents; // absolute value of anchor (cents)
-  extraExpenses?: Cents; // additional expenses to add to anchor (cents)
+  extraExpenses?: Cents; // additional ad-hoc expenses stored separately (cents)
   friendCount: number; // other participants
   status: GroupExpenseStatus;
 }

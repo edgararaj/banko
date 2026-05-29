@@ -60,6 +60,17 @@ export async function importDatabaseFromJson(jsonString: string): Promise<void> 
     throw new Error('Invalid database snapshot format');
   }
 
+  // ISOLATED MIGRATION LOGIC (v1 → v2)
+  // Migrate group expenses from old format (anchor + participants) to new format (expenses + refunds)
+  // Can be removed once v1 databases are no longer expected
+  const migratedGroupExpenses = snapshot.groupExpenses.map((ge: any) => {
+    // Check if this is an old format record
+    if (ge.anchorTransactionId && !ge.expenseTransactionIds) {
+      return migrateGroupExpenseV1toV2(ge);
+    }
+    return ge;
+  });
+
   const db = await openDB();
   const tx = db.transaction(
     ['entities', 'linked_accounts', 'transactions', 'group_expenses', 'transaction_index'],
@@ -114,7 +125,7 @@ export async function importDatabaseFromJson(jsonString: string): Promise<void> 
     transactionsStore.put(normalizeTransaction(transaction as Transaction));
   }
 
-  for (const groupExpense of snapshot.groupExpenses) {
+  for (const groupExpense of migratedGroupExpenses) {
     groupsStore.put(groupExpense as GroupExpense);
   }
 
@@ -151,4 +162,31 @@ export function readFileAsText(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsText(file);
   });
+}
+
+/**
+ * ISOLATED MIGRATION LOGIC (database serialization v1 → v2)
+ * Converts GroupExpense from old format (single anchor + participants)
+ * to new format (expenses list + refunds list).
+ * 
+ * This function is called during JSON import to support databases
+ * exported in the old format. Once all old databases are migrated,
+ * this function can be removed.
+ * 
+ * Migration rules:
+ * - anchorTransactionId becomes the first expense in expenseTransactionIds
+ * - participantTransactionIds become refundTransactionIds
+ * - totalAmount is preserved
+ * - friendCount is set to the number of refund transaction IDs
+ */
+function migrateGroupExpenseV1toV2(oldRecord: any): GroupExpense {
+  return {
+    id: oldRecord.id,
+    expenseTransactionIds: oldRecord.anchorTransactionId ? [oldRecord.anchorTransactionId] : [],
+    refundTransactionIds: oldRecord.participantTransactionIds || [],
+    dateWindow: oldRecord.dateWindow,
+    friendCount: (oldRecord.participantTransactionIds || []).length,
+    extraExpenses: oldRecord.extraExpenses ?? 0,
+    status: oldRecord.status,
+  };
 }

@@ -42,12 +42,13 @@ export async function inferGroupExpenses(): Promise<number> {
 
   // Build exclusion sets so already-matched transactions are never reused
   const usedTransactionIds = new Set<string>();
-  const usedAnchorIds      = new Set<string>(
-    existing.map(g => g.anchorTransactionId)
+  // Track already-used anchor ids (first expense in the group)
+  const usedAnchorIds = new Set<string>(
+    existing.map(g => g.expenseTransactionIds?.[0]).filter(Boolean) as string[]
   );
 
   for (const g of existing) {
-    for (const id of g.participantTransactionIds) usedTransactionIds.add(id);
+    for (const id of (g.refundTransactionIds || [])) usedTransactionIds.add(id);
   }
 
   // Gather all unconsumed spendings (anchors)
@@ -148,14 +149,14 @@ export async function inferGroupExpenses(): Promise<number> {
 
     const groupExpense = {
       id: crypto.randomUUID(),
-      anchorTransactionId: bestAnchor.id,
-      participantTransactionIds,
+      expenseTransactionIds: [bestAnchor.id],
+      refundTransactionIds: participantTransactionIds,
       dateWindow: {
         start: dateYMD(new Date(anchorTime - SEVEN_DAYS_MS)),
         end:   dateYMD(new Date(anchorTime + SEVEN_DAYS_MS)),
       },
-      totalAmount: A,
-      friendCount: friendsCount, 
+      extraExpenses: 0,
+      friendCount: friendsCount,
       status: 'inferred' as const,
     };
 
@@ -181,7 +182,7 @@ export async function inferCustomGroup(anchorId: string, extraCents: number): Pr
 
   const usedReimbursementIds = new Set<string>();
   for (const g of existing) {
-    for (const pid of g.participantTransactionIds) usedReimbursementIds.add(pid);
+    for (const pid of (g.refundTransactionIds || [])) usedReimbursementIds.add(pid);
   }
 
   const anchor = txs.find(t => t.id === anchorId);
@@ -253,13 +254,13 @@ export async function inferCustomGroup(anchorId: string, extraCents: number): Pr
     const participantTransactionIds = cl.map(t => t.id);
     const ge = {
       id: crypto.randomUUID(),
-      anchorTransactionId: anchorId,
-      participantTransactionIds,
+      expenseTransactionIds: [anchorId],
+      refundTransactionIds: participantTransactionIds,
       dateWindow: { 
         start: dateYMD(new Date(anchorTime - SEVEN_DAYS_MS)), 
         end: dateYMD(new Date(anchorTime + SEVEN_DAYS_MS)) 
       },
-      totalAmount: A,
+      extraExpenses: 0,
       friendCount: n,
       status: 'inferred' as const,
     };
@@ -279,13 +280,13 @@ export async function inferCustomGroup(anchorId: string, extraCents: number): Pr
 async function createEmptyFallback(anchorId: string, anchorTime: number, A: number): Promise<boolean> {
   const fallbackGroup = {
     id: crypto.randomUUID(),
-    anchorTransactionId: anchorId,
-    participantTransactionIds: [] as string[],
+    expenseTransactionIds: [anchorId],
+    refundTransactionIds: [] as string[],
     dateWindow: { 
       start: dateYMD(new Date(anchorTime - SEVEN_DAYS_MS)), 
       end: dateYMD(new Date(anchorTime + SEVEN_DAYS_MS)) 
     },
-    totalAmount: A,
+    extraExpenses: 0,
     friendCount: 0,
     status: 'inferred' as const,
   };

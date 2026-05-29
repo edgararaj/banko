@@ -1,7 +1,7 @@
 import { Transaction, Entity, BankAccount } from '../types';
 
 const DB_NAME = 'banko-db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export function normalizeName(value: string | undefined | null) {
   if (!value) return '';
@@ -54,6 +54,7 @@ export function openDB(): Promise<IDBDatabase> {
       const request = ev.target as IDBOpenDBRequest;
       const db = request.result;
       const tx = request.transaction;
+      const oldVersion = ev.oldVersion;
       if (!tx) return;
 
       const transactionsStore = db.objectStoreNames.contains('transactions')
@@ -92,8 +93,9 @@ export function openDB(): Promise<IDBDatabase> {
       if (!groupStore.indexNames.contains('byStatus')) {
         groupStore.createIndex('byStatus', 'status');
       }
-      if (!groupStore.indexNames.contains('byAnchor')) {
-        groupStore.createIndex('byAnchor', 'anchorTransactionId');
+      // v3 to v4 migration: remove byAnchor index and add migration logic below
+      if (groupStore.indexNames.contains('byAnchor')) {
+        groupStore.deleteIndex('byAnchor');
       }
 
       const indexStore = db.objectStoreNames.contains('transaction_index')
@@ -108,6 +110,12 @@ export function openDB(): Promise<IDBDatabase> {
       if (!indexStore.indexNames.contains('description')) {
         indexStore.createIndex('description', 'description');
       }
+
+      // Migration from v3 to v4: Convert old group_expenses format to new format
+      // ISOLATED MIGRATION LOGIC - Can be removed after v4 is stable
+      if (oldVersion < 4 && oldVersion > 0) {
+        migrateGroupExpensesV3toV4(tx, groupStore);
+      }
     };
   });
 }
@@ -118,4 +126,55 @@ export async function readAllFromStore<T>(store: IDBObjectStore): Promise<T[]> {
     request.onsuccess = () => resolve(request.result as T[]);
     request.onerror = () => reject(request.error);
   });
+}
+
+/**
+ * ISOLATED MIGRATION LOGIC (v3 → v4)
+ * Migrates group_expenses from old format (anchor + participants)
+ * to new format (expenses + refunds).
+ * 
+ * This function can be removed once v4 is deployed and no v3 databases
+ * are expected to be migrated anymore.
+ * 
+ * Migration rules:
+ * - anchorTransactionId becomes the first expense
+ * - participantTransactionIds become refunds
+ * - totalAmount is preserved from the anchor
+ * - friendCount is calculated from refunds count
+ */
+function migrateGroupExpensesV3toV4(tx: IDBTransaction, groupStore: IDBObjectStore): void {
+  const getAllRequest = groupStore.getAll();
+  
+  getAllRequest.onsuccess = () => {
+    const oldRecords = getAllRequest.result as any[];
+    
+    for (const oldRecord of oldRecords) {
+      // Skip if already in new format
+      if (oldRecord.expenseTransactionIds && !oldRecord.anchorTransactionId) {
+        continue;
+      }
+      
+      // Transform old format to new format
+      const migratedRecord = {
+        id: oldRecord.id,
+        expenseTransactionIds: oldRecord.anchorTransactionId ? [oldRecord.anchorTransactionId] : [],
+        refundTransactionIds: oldRecord.participantTransactionIds || [],
+        dateWindow: oldRecord.dateWindow,
+        friendCount: (oldRecord.participantTransactionIds || []).length,
+        status: oldRecord.status,
+        // Remove old fields
+        anchorTransactionId: undefined,
+        participantTransactionIds: undefined,
+        extraExpenses: oldRecord.extraExpenses ?? 0,
+      };
+      
+      // Clean up undefined fields
+      // Cast to `any` for dynamic property access to satisfy TS index checks
+      Object.keys(migratedRecord).forEach(
+        (key) => (migratedRecord as any)[key] === undefined && delete (migratedRecord as any)[key]
+      );
+      
+      groupStore.put(migratedRecord);
+    }
+  };
 }

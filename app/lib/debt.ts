@@ -1,5 +1,5 @@
 import { getAllGroupExpenses, getAllTransactions, getAllEntities, getAllBankAccounts, resolveTransactionBankAccountId } from './db';
-import type { GroupExpense } from './types';
+import { computeGroupTotals } from './group';
 
 export interface EntityNetDebt {
   entityId: string;
@@ -39,14 +39,15 @@ export async function computeDebts(): Promise<{ entityDebts: EntityNetDebt[]; gr
   const rounding = (v: number) => Math.round(v); // cents already
 
   for (const g of groups) {
-    const total = g.totalAmount;
+    const { total } = computeGroupTotals(g, txs);
     const participants = g.friendCount + 1;
     const expectedShare = rounding(total / participants);
 
-    // Sum payments made per friend (entity) using participantTransactionIds
+    // Sum all transaction amounts per entity (both expenses and refunds)
     const paymentsPerEntity = new Map<string, number>();
-    for (const pid of g.participantTransactionIds) {
-      const t = txById.get(pid);
+    const allGroupTransactionIds = [...g.expenseTransactionIds, ...g.refundTransactionIds];
+    for (const txnId of allGroupTransactionIds) {
+      const t = txById.get(txnId);
       const accountId = t ? resolveTransactionBankAccountId(t) : null;
       const account = accountId ? accountById.get(accountId) : undefined;
       if (!t || !account) continue;

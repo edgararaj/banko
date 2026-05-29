@@ -78,16 +78,15 @@ export async function createGroupFromTransactionIds(ids: string[], fallbackAncho
 
   if (selected.length === 0) return;
 
-  let anchor: Transaction | undefined;
-  for (const transaction of selected) {
-    if (transaction.amount < 0 && (!anchor || Math.abs(transaction.amount) > Math.abs(anchor.amount))) {
-      anchor = transaction;
-    }
-  }
+  // Separate transactions into expenses (negative) and refunds (positive)
+  const expenseTransactions = selected.filter((t) => t.amount < 0);
+  const refundTransactions = selected.filter((t) => t.amount >= 0);
 
-  if (!anchor) {
+  // If no expenses, try to create a synthetic anchor for fallback
+  let finalExpenses = expenseTransactions;
+  if (finalExpenses.length === 0) {
     if (typeof fallbackAnchorAmountCents !== 'number' || !Number.isFinite(fallbackAnchorAmountCents)) {
-      throw new Error('NO_ANCHOR_FOUND');
+      throw new Error('NO_EXPENSES_FOUND');
     }
 
     const selectedDates = selected.map((transaction) => transaction.date).filter(Boolean);
@@ -105,25 +104,27 @@ export async function createGroupFromTransactionIds(ids: string[], fallbackAncho
       bankAccountId: fallbackOwner.bankAccount.id,
     };
 
-    anchor = await addTransactionIfNotExists(syntheticAnchor);
+    const anchor = await addTransactionIfNotExists(syntheticAnchor);
+    finalExpenses = [anchor];
   }
 
   const tx = db.transaction('group_expenses', 'readwrite');
   const gStore = tx.objectStore('group_expenses');
-  const participantIds = selected.map((transaction) => transaction.id).filter((id) => id !== anchor!.id);
+  const expenseIds = finalExpenses.map((t) => t.id);
+  const refundIds = refundTransactions.map((t) => t.id);
 
   const dates = selected.map((transaction) => transaction.date).filter(Boolean);
-  const start = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : anchor.date;
-  const end = dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : anchor.date;
+  const start = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : finalExpenses[0].date;
+  const end = dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : finalExpenses[0].date;
 
+  // Calculate totalAmount as the sum of absolute values of expenses
   const ge: GroupExpense = {
     id: crypto.randomUUID(),
-    anchorTransactionId: anchor.id,
-    participantTransactionIds: participantIds,
+    expenseTransactionIds: expenseIds,
+    refundTransactionIds: refundIds,
     dateWindow: { start, end },
-    totalAmount: Math.abs(anchor.amount),
     extraExpenses: 0,
-    friendCount: participantIds.length,
+    friendCount: refundIds.length,
     status: 'modified',
   };
 

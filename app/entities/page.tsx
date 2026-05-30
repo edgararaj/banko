@@ -84,6 +84,16 @@ export default function EntitiesPage() {
     });
   }, [bankAccounts, entities, search]);
 
+  const sortedEntities = useMemo(() => {
+    return [...filteredEntities].sort((a, b) => {
+      const aTotals = totals[a.id] ?? { sent: 0, received: 0, groups: 0, accounts: 0 };
+      const bTotals = totals[b.id] ?? { sent: 0, received: 0, groups: 0, accounts: 0 };
+      const aMagnitude = Math.abs(aTotals.sent) + Math.abs(aTotals.received);
+      const bMagnitude = Math.abs(bTotals.sent) + Math.abs(bTotals.received);
+      return bMagnitude - aMagnitude;
+    });
+  }, [filteredEntities, totals]);
+
   return (
     <Box sx={{ p: 2 }}>
       <Typography variant="h5" sx={{ mb: 2 }}>Entities</Typography>
@@ -98,8 +108,8 @@ export default function EntitiesPage() {
       />
 
       <Stack spacing={2}>
-        {filteredEntities.map(e => {
-            const t = totals[e.id] ?? { sent:0, received:0, groups:0, accounts:0 };
+        {sortedEntities.map(e => {
+          const t = totals[e.id] ?? { sent:0, received:0, groups:0, accounts:0 };
           return (
             <Card key={e.id} variant="outlined">
               <CardActionArea onClick={() => router.push(`/entities/${e.id}`)}>

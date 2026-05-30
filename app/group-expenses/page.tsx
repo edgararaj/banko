@@ -51,6 +51,12 @@ function groupAnchorDateMs(group: GroupExpense, txs: Transaction[]) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+function groupStatusRank(status: GroupExpense['status']) {
+  if (status === 'modified') return 0;
+  if (status === 'inferred') return 1;
+  return 2;
+}
+
 function getPrimaryExpenseInfo(group: GroupExpense, txs: Transaction[], linkedAccounts: Record<string, BankAccount>) {
   const primaryExpense = txs.find((tx) => tx.id === group.expenseTransactionIds?.[0]);
   const primaryExpenseAccount = primaryExpense ? linkedAccounts[resolveTransactionBankAccountId(primaryExpense) ?? ''] : undefined;
@@ -666,7 +672,11 @@ export default function GroupExpensesPage() {
       <Typography variant="h5" component="h2" sx={{ mb: 2 }}>Group Expenses</Typography>
       <Stack spacing={1.25}>
         {[...groups]
-          .sort((a, b) => groupAnchorDateMs(b, txs) - groupAnchorDateMs(a, txs))
+          .sort((a, b) => {
+            const statusDiff = groupStatusRank(a.status) - groupStatusRank(b.status);
+            if (statusDiff !== 0) return statusDiff;
+            return groupAnchorDateMs(b, txs) - groupAnchorDateMs(a, txs);
+          })
           .map(g => {
           const totals = computeGroupTotals(g, txs);
           const { primaryExpenseName, primaryExpenseBankName } = getPrimaryExpenseInfo(g, txs, linkedAccounts);

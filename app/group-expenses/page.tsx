@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Alert, Box, Button, Card, CardActionArea, CardContent, Dialog, DialogActions, DialogContent, DialogTitle, Divider, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardActionArea, CardContent, Dialog, DialogActions, DialogContent, DialogTitle, Divider, List, ListItem, ListItemText, Stack, TextField, Typography, Collapse, IconButton } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { getAllGroupExpenses, getAllTransactions, getAllEntities, getAllBankAccounts, updateGroupExpense, deleteGroupExpense, resolveTransactionBankAccountId } from '../lib/db';
 import type { GroupExpense, BankAccount, Transaction } from '../lib/types';
@@ -60,6 +61,80 @@ function getPrimaryExpenseInfo(group: GroupExpense, txs: Transaction[], linkedAc
   };
 }
 
+function getEntityNameForTransaction(tx: Transaction | undefined, linkedAccounts: Record<string, BankAccount>, entities: Record<string, string>): string {
+  if (!tx) return 'unknown';
+  const accountId = resolveTransactionBankAccountId(tx);
+  const account = accountId ? linkedAccounts[accountId] : undefined;
+  return account ? (entities[account.entityId] ?? account.entityId) : 'unknown';
+}
+
+interface AggregatedTransactions {
+  type: 'aggregation';
+  entityName: string;
+  totalAmount: number;
+  transactions: Transaction[];
+}
+
+interface IndividualTransaction {
+  type: 'individual';
+  transaction: Transaction;
+  entityName: string;
+}
+
+type TransactionItem = AggregatedTransactions | IndividualTransaction;
+
+function organizeTransactionsByEntity(
+  txnIds: string[],
+  allTransactions: Transaction[],
+  linkedAccounts: Record<string, BankAccount>,
+  entities: Record<string, string>
+): TransactionItem[] {
+  const txMap = new Map(allTransactions.map(t => [t.id, t]));
+  
+  // Group by entity
+  const byEntity = new Map<string, Transaction[]>();
+  for (const txnId of txnIds) {
+    const tx = txMap.get(txnId);
+    if (!tx) continue;
+    const entityName = getEntityNameForTransaction(tx, linkedAccounts, entities);
+    if (!byEntity.has(entityName)) {
+      byEntity.set(entityName, []);
+    }
+    byEntity.get(entityName)!.push(tx);
+  }
+
+  // Separate aggregations (2+) from individuals
+  const aggregations: AggregatedTransactions[] = [];
+  const individuals: IndividualTransaction[] = [];
+
+  for (const [entityName, transactions] of byEntity) {
+    if (transactions.length > 1) {
+      const sorted = [...transactions].sort((a, b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
+      const total = sorted.reduce((sum, t) => sum + t.amount, 0);
+      const avgDate = sorted.reduce((sum, t) => sum + parseDateStringToMs(t.date), 0) / sorted.length;
+      aggregations.push({
+        type: 'aggregation',
+        entityName,
+        totalAmount: total,
+        transactions: sorted,
+        avgDate,
+      } as any);
+    } else {
+      individuals.push({
+        type: 'individual',
+        transaction: transactions[0],
+        entityName,
+      });
+    }
+  }
+
+  // Sort aggregations by average date (most recent first), individuals by date
+  aggregations.sort((a, b) => (b as any).avgDate - (a as any).avgDate);
+  individuals.sort((a, b) => parseDateStringToMs(b.transaction.date) - parseDateStringToMs(a.transaction.date));
+
+  return [...aggregations, ...individuals];
+}
+
 export default function GroupExpensesPage() {
   const [groups, setGroups] = useState<GroupExpense[]>([]);
   const [txs, setTxs] = useState<Transaction[]>([]);
@@ -72,6 +147,7 @@ export default function GroupExpensesPage() {
   const [showAllTransfers, setShowAllTransfers] = useState(false);
   const [selectedTransferIds, setSelectedTransferIds] = useState<string[]>([]);
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<string[]>([]);
+  const [expandedAggregations, setExpandedAggregations] = useState<Set<string>>(new Set());
 
   const router = useRouter();
   const [editId, setEditId] = useState<string | null>(() => {
@@ -102,6 +178,7 @@ export default function GroupExpensesPage() {
         setExtraExpensesInput(g ? formatExtraExpensesInput(g.extraExpenses ?? 0) : '0.00');
         setShowAllTransfers(false);
         setSelectedTransferIds([]);
+        setSelectedExpenseIds([]);
       } else {
         setEditing(null);
         setExtraExpensesInput('');
@@ -134,6 +211,22 @@ export default function GroupExpensesPage() {
     const refundsTotal = calculateRefundsTotal(ed, txs);
     const totals = computeGroupTotals({ ...ed, extraExpenses: parsedExtraExpenses }, txs);
     const balanceExcludingMyShare = balanceExcludingPayer(totals.total, txs, ed.refundTransactionIds, ed.friendCount, 0);
+    const balance = refundsTotal - expensesTotal;
+
+    const organizedExpenses = organizeTransactionsByEntity(ed.expenseTransactionIds || [], txs, linkedAccounts, entities);
+    const organizedRefunds = organizeTransactionsByEntity(ed.refundTransactionIds || [], txs, linkedAccounts, entities);
+
+    const toggleAggregationExpanded = (aggregationKey: string) => {
+      setExpandedAggregations(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(aggregationKey)) {
+          newSet.delete(aggregationKey);
+        } else {
+          newSet.add(aggregationKey);
+        }
+        return newSet;
+      });
+    };
 
     return (
       <Box sx={{ p: 2 }}>
@@ -143,10 +236,35 @@ export default function GroupExpensesPage() {
         </Stack>
 
         <Stack spacing={1.25} sx={{ mb: 2 }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="body1">Group name:</Typography>
+            <TextField
+              type="text"
+              size="small"
+              placeholder="Optional label"
+              value={ed.name ?? ''}
+              onChange={(e) => {
+                setEditing({ ...ed, name: e.target.value || undefined });
+              }}
+              sx={{ flex: 1, minWidth: 200 }}
+            />
+          </Stack>
+
           <Typography variant="body1">Total expenses: <strong>{formatCents(expensesTotal)}</strong></Typography>
-          <Typography variant="body1">Participants: <strong>{participantCount}</strong> (<strong>{formatCents(Math.trunc(expensesTotal / Math.max(1, participantCount)))}</strong> each)</Typography>
-          <Typography variant="body1">Balance (excluding my share): <strong>{formatCents(balanceExcludingMyShare)}</strong></Typography>
+          <Typography variant="body1">Balance: <strong>{formatCents(balance)}</strong></Typography>
         </Stack>
+        <Card variant="outlined">
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 1 }}>Expense shared by participants</Typography>
+            <Typography variant="body1">Balance (excluding my share): <strong>{formatCents(balanceExcludingMyShare)}</strong></Typography>
+            <Typography variant="body1">Participants: <strong>{participantCount}</strong> (<strong>{formatCents(Math.trunc(expensesTotal / Math.max(1, participantCount)))}</strong> each)</Typography>
+            <Typography className="small-muted" sx={{ mt: 2, fontSize: '0.875rem' }}>
+              Your share is calculated as the median refund amount received from the other participants. The number of participants = total expenses / each participant's share.
+            </Typography>
+          </CardContent>
+        </Card>
+
+        <Divider sx={{ my: 2 }} />
 
         <Card variant="outlined" sx={{ mb: 2 }}>
           <CardContent>
@@ -155,39 +273,99 @@ export default function GroupExpensesPage() {
               <Alert severity="info">No expense transactions recorded.</Alert>
             ) : (
               <List disablePadding>
-                {(ed.expenseTransactionIds || []).map((txnId: string, idx: number) => {
-                  const t = txs.find(x => x.id === txnId);
-                  return (
-                    <React.Fragment key={txnId}>
-                      <ListItem
-                        disableGutters
-                        secondaryAction={
-                          <Button
-                            color="error"
-                            onClick={() => {
-                              const updated = {
-                                ...ed,
-                                expenseTransactionIds: ed.expenseTransactionIds.filter((x: string) => x !== txnId),
-                              };
-                              setEditing(updated);
+                {organizedExpenses.map((item, idx) => {
+                  if (item.type === 'aggregation') {
+                    const aggregationKey = `expense-agg-${item.entityName}`;
+                    const isExpanded = expandedAggregations.has(aggregationKey);
+                    return (
+                      <React.Fragment key={aggregationKey}>
+                        <ListItem
+                          disableGutters
+                          onClick={() => toggleAggregationExpanded(aggregationKey)}
+                          sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                        >
+                          <IconButton
+                            size="small"
+                            sx={{
+                              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                              transition: 'transform 0.3s',
                             }}
                           >
-                            Remove
-                          </Button>
-                        }
-                      >
-                        <ListItemText
-                          primary={`${t ? t.date : txnId} ${t ? `- ${formatCents(Math.abs(t.amount))}` : ''}`}
-                          secondary={(() => {
-                            const accountId = t ? resolveTransactionBankAccountId(t) : null;
-                            const account = accountId ? linkedAccounts[accountId] : undefined;
-                            return account ? (entities[account.entityId] ?? account.entityId) : 'unknown';
-                          })()}
-                        />
-                      </ListItem>
-                      {idx < (ed.expenseTransactionIds || []).length - 1 ? <Divider component="li" /> : null}
-                    </React.Fragment>
-                  );
+                            <ExpandMoreIcon />
+                          </IconButton>
+                          <ListItemText
+                            primary={`${item.entityName}`}
+                            secondary={`${item.transactions.length} transactions - ${formatCents(Math.abs(item.totalAmount))}`}
+                          />
+                        </ListItem>
+                        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                          <List component="div" disablePadding sx={{ pl: 4, bgcolor: 'rgba(0, 0, 0, 0.02)' }}>
+                            {item.transactions.map((tx, txIdx) => (
+                              <React.Fragment key={tx.id}>
+                                <ListItem
+                                  disableGutters
+                                  secondaryAction={
+                                    <Button
+                                      color="error"
+                                      size="small"
+                                      onClick={() => {
+                                        const updated = {
+                                          ...ed,
+                                          expenseTransactionIds: ed.expenseTransactionIds.filter((x: string) => x !== tx.id),
+                                        };
+                                        setEditing(updated);
+                                      }}
+                                    >
+                                      Remove
+                                    </Button>
+                                  }
+                                >
+                                  <ListItemText
+                                    primary={
+                                      <Typography variant="body2">
+                                        {tx.date} - {formatCents(Math.abs(tx.amount))}
+                                      </Typography>
+                                    }
+                                  />
+                                </ListItem>
+                                {txIdx < item.transactions.length - 1 ? <Divider component="li" /> : null}
+                              </React.Fragment>
+                            ))}
+                          </List>
+                        </Collapse>
+                        {idx < organizedExpenses.length - 1 ? <Divider component="li" /> : null}
+                      </React.Fragment>
+                    );
+                  } else {
+                    const tx = item.transaction;
+                    return (
+                      <React.Fragment key={tx.id}>
+                        <ListItem
+                          disableGutters
+                          secondaryAction={
+                            <Button
+                              color="error"
+                              onClick={() => {
+                                const updated = {
+                                  ...ed,
+                                  expenseTransactionIds: ed.expenseTransactionIds.filter((x: string) => x !== tx.id),
+                                };
+                                setEditing(updated);
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          }
+                        >
+                          <ListItemText
+                            primary={`${tx.date} ${tx ? `- ${formatCents(Math.abs(tx.amount))}` : ''}`}
+                            secondary={item.entityName}
+                          />
+                        </ListItem>
+                        {idx < organizedExpenses.length - 1 ? <Divider component="li" /> : null}
+                      </React.Fragment>
+                    );
+                  }
                 })}
               </List>
             )}
@@ -222,39 +400,99 @@ export default function GroupExpensesPage() {
               <Alert severity="info">No refund transfers selected yet.</Alert>
             ) : (
               <List disablePadding>
-                {(ed.refundTransactionIds || []).map((txnId: string, idx: number) => {
-                  const t = txs.find(x => x.id === txnId);
-                  return (
-                    <React.Fragment key={txnId}>
-                      <ListItem
-                        disableGutters
-                        secondaryAction={
-                          <Button
-                            color="error"
-                            onClick={() => {
-                              const updated = {
-                                ...ed,
-                                refundTransactionIds: ed.refundTransactionIds.filter((x: string) => x !== txnId),
-                              };
-                              setEditing(updated);
+                {organizedRefunds.map((item, idx) => {
+                  if (item.type === 'aggregation') {
+                    const aggregationKey = `refund-agg-${item.entityName}`;
+                    const isExpanded = expandedAggregations.has(aggregationKey);
+                    return (
+                      <React.Fragment key={aggregationKey}>
+                        <ListItem
+                          disableGutters
+                          onClick={() => toggleAggregationExpanded(aggregationKey)}
+                          sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                        >
+                          <IconButton
+                            size="small"
+                            sx={{
+                              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                              transition: 'transform 0.3s',
                             }}
                           >
-                            Remove
-                          </Button>
-                        }
-                      >
-                        <ListItemText
-                          primary={`${t ? t.date : txnId} ${t ? `- ${formatCents(t.amount)}` : ''}`}
-                          secondary={(() => {
-                            const accountId = t ? resolveTransactionBankAccountId(t) : null;
-                            const account = accountId ? linkedAccounts[accountId] : undefined;
-                            return account ? (entities[account.entityId] ?? account.entityId) : 'unknown';
-                          })()}
-                        />
-                      </ListItem>
-                      {idx < (ed.refundTransactionIds || []).length - 1 ? <Divider component="li" /> : null}
-                    </React.Fragment>
-                  );
+                            <ExpandMoreIcon />
+                          </IconButton>
+                          <ListItemText
+                            primary={`${item.entityName}`}
+                            secondary={`${item.transactions.length} transactions - ${formatCents(item.totalAmount)}`}
+                          />
+                        </ListItem>
+                        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                          <List component="div" disablePadding sx={{ pl: 4, bgcolor: 'rgba(0, 0, 0, 0.02)' }}>
+                            {item.transactions.map((tx, txIdx) => (
+                              <React.Fragment key={tx.id}>
+                                <ListItem
+                                  disableGutters
+                                  secondaryAction={
+                                    <Button
+                                      color="error"
+                                      size="small"
+                                      onClick={() => {
+                                        const updated = {
+                                          ...ed,
+                                          refundTransactionIds: ed.refundTransactionIds.filter((x: string) => x !== tx.id),
+                                        };
+                                        setEditing(updated);
+                                      }}
+                                    >
+                                      Remove
+                                    </Button>
+                                  }
+                                >
+                                  <ListItemText
+                                    primary={
+                                      <Typography variant="body2">
+                                        {tx.date} - {formatCents(tx.amount)}
+                                      </Typography>
+                                    }
+                                  />
+                                </ListItem>
+                                {txIdx < item.transactions.length - 1 ? <Divider component="li" /> : null}
+                              </React.Fragment>
+                            ))}
+                          </List>
+                        </Collapse>
+                        {idx < organizedRefunds.length - 1 ? <Divider component="li" /> : null}
+                      </React.Fragment>
+                    );
+                  } else {
+                    const tx = item.transaction;
+                    return (
+                      <React.Fragment key={tx.id}>
+                        <ListItem
+                          disableGutters
+                          secondaryAction={
+                            <Button
+                              color="error"
+                              onClick={() => {
+                                const updated = {
+                                  ...ed,
+                                  refundTransactionIds: ed.refundTransactionIds.filter((x: string) => x !== tx.id),
+                                };
+                                setEditing(updated);
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          }
+                        >
+                          <ListItemText
+                            primary={`${tx.date} ${tx ? `- ${formatCents(tx.amount)}` : ''}`}
+                            secondary={item.entityName}
+                          />
+                        </ListItem>
+                        {idx < organizedRefunds.length - 1 ? <Divider component="li" /> : null}
+                      </React.Fragment>
+                    );
+                  }
                 })}
               </List>
             )}
@@ -361,7 +599,7 @@ export default function GroupExpensesPage() {
                 router.push('/group-expenses');
               } catch (err) {
                 console.error(err);
-                alert('Save failed');
+                alert(err instanceof Error ? err.message : 'Save failed');
               }
             }}
           >
@@ -383,7 +621,7 @@ export default function GroupExpensesPage() {
                 router.push('/group-expenses');
               } catch (err) {
                 console.error(err);
-                alert('Failed to update status');
+                alert(err instanceof Error ? err.message : 'Failed to update status');
               }
             }}
           >
@@ -402,7 +640,7 @@ export default function GroupExpensesPage() {
                 router.push('/group-expenses');
               } catch (err) {
                 console.error(err);
-                alert('Delete failed');
+                alert(err instanceof Error ? err.message : 'Delete failed');
               }
             }}
           >
@@ -438,7 +676,7 @@ export default function GroupExpensesPage() {
                   <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
                     {isCompleted ? <CheckCircleRoundedIcon sx={{ color: 'success.main', fontSize: 18 }} /> : null}
                     <Typography variant="subtitle1" sx={{ fontWeight: 600, color: isCompleted ? 'success.main' : 'text.primary' }}>
-                      {formatCents(totals.total)} - {g.status}
+                      {g.name ? `${g.name} - ` : ''}{formatCents(totals.total)} - {g.status}
                     </Typography>
                   </Stack>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>

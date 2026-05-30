@@ -3,7 +3,54 @@ import { openDB, readAllFromStore, normalizeTransaction } from './db-core';
 import { addTransactionIfNotExists } from './transaction';
 import { ensureEntityAndBankAccount } from './bank-account';
 
+type TransactionConflictResult = {
+  conflictingIds: string[];
+  groupIds: string[];
+};
+
+function getGroupTransactionIds(group: GroupExpense): string[] {
+  return [...(group.expenseTransactionIds || []), ...(group.refundTransactionIds || [])];
+}
+
+export async function checkTransactionConflicts(transactionIds: string[], excludeGroupId?: string): Promise<TransactionConflictResult> {
+  const allGroups = await getAllGroupExpenses();
+  const conflictingIds = new Set<string>();
+  const groupIds = new Set<string>();
+
+  for (const group of allGroups) {
+    if (excludeGroupId && group.id === excludeGroupId) continue;
+
+    const groupTransactionIds = new Set(getGroupTransactionIds(group));
+    for (const txId of transactionIds) {
+      if (groupTransactionIds.has(txId)) {
+        conflictingIds.add(txId);
+        groupIds.add(group.id);
+      }
+    }
+  }
+
+  return {
+    conflictingIds: Array.from(conflictingIds),
+    groupIds: Array.from(groupIds),
+  };
+}
+
+async function assertNoTransactionConflicts(transactionIds: string[], excludeGroupId?: string): Promise<void> {
+  const conflicts = await checkTransactionConflicts(transactionIds, excludeGroupId);
+  if (conflicts.conflictingIds.length === 0) return;
+
+  const message = excludeGroupId
+    ? `Transaction(s) already belong to another group: ${conflicts.conflictingIds.join(', ')}`
+    : `Transaction(s) already belong to another group: ${conflicts.conflictingIds.join(', ')}`;
+
+  const error = new Error(message);
+  error.name = 'TRANSACTION_GROUP_CONFLICT';
+  throw error;
+}
+
 export async function createGroupExpense(ge: GroupExpense): Promise<void> {
+  await assertNoTransactionConflicts(getGroupTransactionIds(ge));
+
   const db = await openDB();
   const tx = db.transaction('group_expenses', 'readwrite');
   const store = tx.objectStore('group_expenses');
@@ -24,6 +71,8 @@ export async function getAllGroupExpenses(): Promise<GroupExpense[]> {
 }
 
 export async function updateGroupExpense(ge: GroupExpense): Promise<void> {
+  await assertNoTransactionConflicts(getGroupTransactionIds(ge), ge.id);
+
   const db = await openDB();
   const tx = db.transaction('group_expenses', 'readwrite');
   const store = tx.objectStore('group_expenses');
@@ -108,8 +157,6 @@ export async function createGroupFromTransactionIds(ids: string[], fallbackAncho
     finalExpenses = [anchor];
   }
 
-  const tx = db.transaction('group_expenses', 'readwrite');
-  const gStore = tx.objectStore('group_expenses');
   const expenseIds = finalExpenses.map((t) => t.id);
   const refundIds = refundTransactions.map((t) => t.id);
 
@@ -128,6 +175,10 @@ export async function createGroupFromTransactionIds(ids: string[], fallbackAncho
     status: 'modified',
   };
 
+  await assertNoTransactionConflicts(getGroupTransactionIds(ge));
+
+  const tx = db.transaction('group_expenses', 'readwrite');
+  const gStore = tx.objectStore('group_expenses');
   const req = gStore.add(ge);
   req.onsuccess = () => console.debug('db: created group from selection', ge.id);
   req.onerror = () => console.error('db: create group failed', req.error);

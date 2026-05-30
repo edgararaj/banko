@@ -13,6 +13,7 @@ export default function SettingsPage() {
   const { mode, toggleMode } = useAppColorMode();
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importWarnings, setImportWarnings] = useState<string[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExport = async () => {
@@ -39,9 +40,15 @@ export default function SettingsPage() {
 
     try {
       setIsImporting(true);
+      setImportWarnings(null);
       const jsonString = await readFileAsText(file);
-      await importDatabaseFromJson(jsonString);
-      alert('Database imported successfully. Please refresh the page to see changes.');
+      const warnings = await importDatabaseFromJson(jsonString);
+      if (warnings && warnings.length > 0) {
+        setImportWarnings(warnings);
+        alert('Database imported with warnings. See the warnings below. Please refresh the page to see changes.');
+      } else {
+        alert('Database imported successfully. Please refresh the page to see changes.');
+      }
       // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -107,6 +114,21 @@ export default function SettingsPage() {
             </Stack>
           </CardContent>
         </Card>
+        {importWarnings && importWarnings.length > 0 ? (
+          <Card variant="outlined" sx={{ borderColor: 'warning.main' }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 1 }}>Import Warnings</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                The database was imported but some entries were adjusted to avoid conflicts. Review the warnings below.
+              </Typography>
+              <Stack spacing={0.5}>
+                {importWarnings.map((w, i) => (
+                  <Typography key={i} variant="body2" color="warning.main">{w}</Typography>
+                ))}
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Divider />
 

@@ -2,13 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Autocomplete, Box, Button, Card, CardActionArea, CardContent, Divider, Stack, TextField, Typography, Chip } from '@mui/material';
-import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
-import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
+import { Autocomplete, Box, Button, Card, CardContent, Stack, TextField, Typography, Chip } from '@mui/material';
 import { getAllEntities, getAllTransactions, getAllBankAccounts, updateEntity, updateBankAccount, addBankAccountIfNotExists, resolveTransactionBankAccountId, deleteEntity } from '../../lib/db';
 import TransactionsBulkActions from '../../components/TransactionsBulkActions';
+import NiceTransactionsList from '../../components/NiceTransactionsList';
 import type { Entity, BankAccount, Transaction } from '../../lib/types';
-import { parseDateStringToMs } from '../../lib/format';
 
 function formatCents(cents: number) {
   const sign = cents < 0 ? '-' : '';
@@ -45,8 +43,7 @@ export default function EntityDetailPage() {
     const currentAccounts = allAccounts.filter((a) => a.entityId === entityId);
     const currentAccountIds = new Set(currentAccounts.map((a) => a.id));
     const relevantTransactions = allTransactions
-      .filter((t) => currentAccountIds.has(resolveTransactionBankAccountId(t) ?? ''))
-      .sort((a, b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
+      .filter((t) => currentAccountIds.has(resolveTransactionBankAccountId(t) ?? ''));
 
     setLinkedAccounts(currentAccounts);
     setUnlinkedAccounts(allAccounts.filter((a) => a.entityId !== entityId));
@@ -65,8 +62,7 @@ export default function EntityDetailPage() {
       const currentAccounts = allAccounts.filter((a) => a.entityId === entityId);
       const currentAccountIds = new Set(currentAccounts.map((a) => a.id));
       const relevantTransactions = allTransactions
-        .filter((t) => currentAccountIds.has(resolveTransactionBankAccountId(t) ?? ''))
-        .sort((a, b) => parseDateStringToMs(b.date) - parseDateStringToMs(a.date));
+        .filter((t) => currentAccountIds.has(resolveTransactionBankAccountId(t) ?? ''));
 
       setEntity(currentEntity);
       setLinkedAccounts(currentAccounts);
@@ -239,61 +235,16 @@ export default function EntityDetailPage() {
       </Stack>
 
       <Typography variant="h6" sx={{ mb: 1 }}>Transactions</Typography>
-      <Stack spacing={1.25}>
-        {transactions.length === 0 ? (
-          <Card variant="outlined">
-            <CardContent>
-              <Typography color="text.secondary">No transactions linked to this entity.</Typography>
-            </CardContent>
-          </Card>
-        ) : transactions.map((transaction, index) => {
-          const isOutgoing = transaction.amount < 0;
-          return (
-            <React.Fragment key={transaction.id}>
-              <Card
-                variant="outlined"
-                sx={{
-                  outline: selected[transaction.id] ? '2px solid' : undefined,
-                  outlineColor: selected[transaction.id] ? 'primary.main' : undefined,
-                }}
-              >
-                <CardActionArea onClick={() => toggleSelect(transaction.id)}>
-                  <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <Box sx={{
-                    flexShrink: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 40,
-                    height: 40,
-                    borderRadius: '50%',
-                    bgcolor: isOutgoing ? 'error.light' : 'success.light',
-                    color: isOutgoing ? 'error.dark' : 'success.dark',
-                  }}>
-                    {isOutgoing ? <ArrowDownwardRoundedIcon /> : <ArrowUpwardRoundedIcon />}
-                  </Box>
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography sx={{ fontWeight: 600 }} noWrap>{transaction.date}</Typography>
-                    <Typography variant="body2" color="text.secondary" noWrap>
-                      {transaction.description || 'No description'}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                    <Typography sx={{ fontWeight: 600, color: isOutgoing ? 'error.main' : 'success.main' }}>
-                      {formatCents(transaction.amount)}
-                    </Typography>
-                    <Typography variant="body2" color={isOutgoing ? 'error.main' : 'success.main'}>
-                      {isOutgoing ? 'Outgoing' : 'Incoming'}
-                    </Typography>
-                  </Box>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-              {index < transactions.length - 1 ? <Divider /> : null}
-            </React.Fragment>
-          );
-        })}
-      </Stack>
+      <NiceTransactionsList
+        transactions={transactions}
+        selectable
+        selectedIds={selectedIds}
+        onSelectionChange={(ids) => {
+          const next: Record<string, boolean> = {};
+          for (const id of ids) next[id] = true;
+          setSelected(next);
+        }}
+      />
       <TransactionsBulkActions selectedIds={selectedIds} clearSelection={() => setSelected({})} refresh={reloadAccountsAndTransactions} />
     </Box>
   );

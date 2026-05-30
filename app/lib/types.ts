@@ -30,6 +30,7 @@ export type GroupExpenseStatus = 'inferred' | 'modified' | 'completed';
 
 export interface GroupExpense {
   id: string; // uuid
+  name?: string; // optional label for the group
   expenseTransactionIds: string[]; // transaction ids for expenses (negative amounts)
   refundTransactionIds: string[]; // transaction ids for refunds/reimbursements (positive amounts)
   dateWindow: DateWindow; // ±1 day window

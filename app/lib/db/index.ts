@@ -38,4 +38,5 @@ export {
   getGroupExpenseById,
   deleteGroupExpense,
   createGroupFromTransactionIds,
+  checkTransactionConflicts,
 } from './group-expense';

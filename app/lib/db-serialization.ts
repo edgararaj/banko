@@ -40,7 +40,7 @@ export async function exportDatabaseAsJson(): Promise<string> {
   return JSON.stringify(snapshot, null, 2);
 }
 
-export async function importDatabaseFromJson(jsonString: string): Promise<void> {
+export async function importDatabaseFromJson(jsonString: string): Promise<string[]> {
   let snapshot: Partial<DatabaseSnapshot>;
 
   try {
@@ -125,8 +125,48 @@ export async function importDatabaseFromJson(jsonString: string): Promise<void> 
     transactionsStore.put(normalizeTransaction(transaction as Transaction));
   }
 
+  // When importing groups, avoid allowing the same transaction id to be referenced
+  // by more than one group. Track seen transaction ids across imported groups
+  // for this import run and remove any duplicated references, recording warnings
+  // for each conflict. Use a local Set so multiple imports don't share state.
+  const warnings: string[] = [];
+  const seenSet: Set<string> = new Set<string>();
+
   for (const groupExpense of migratedGroupExpenses) {
-    groupsStore.put(groupExpense as GroupExpense);
+    const processed: any = { ...groupExpense };
+    processed.expenseTransactionIds = (processed.expenseTransactionIds || []).filter(Boolean);
+    processed.refundTransactionIds = (processed.refundTransactionIds || []).filter(Boolean);
+
+    const removedIds: string[] = [];
+
+    processed.expenseTransactionIds = processed.expenseTransactionIds.filter((id: string) => {
+      if (seenSet.has(id)) {
+        removedIds.push(id);
+        return false;
+      }
+      return true;
+    });
+
+    processed.refundTransactionIds = processed.refundTransactionIds.filter((id: string) => {
+      if (seenSet.has(id)) {
+        removedIds.push(id);
+        return false;
+      }
+      return true;
+    });
+
+    // Mark remaining ids as seen so subsequent groups won't reuse them
+    for (const id of [...processed.expenseTransactionIds, ...processed.refundTransactionIds]) {
+      seenSet.add(id);
+    }
+
+    if (removedIds.length > 0) {
+      const msg = `Import skipped ${removedIds.length} duplicated transaction id(s) for group ${processed.id}: ${removedIds.join(', ')}`;
+      console.error(msg);
+      warnings.push(msg);
+    }
+
+    groupsStore.put(processed as GroupExpense);
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -134,6 +174,8 @@ export async function importDatabaseFromJson(jsonString: string): Promise<void> 
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error('Import aborted'));
   });
+
+  return warnings;
 }
 
 export function downloadJson(jsonString: string, filename: string = 'banko-database.json'): void {
@@ -182,6 +224,7 @@ export function readFileAsText(file: File): Promise<string> {
 function migrateGroupExpenseV1toV2(oldRecord: any): GroupExpense {
   return {
     id: oldRecord.id,
+    name: oldRecord.name,
     expenseTransactionIds: oldRecord.anchorTransactionId ? [oldRecord.anchorTransactionId] : [],
     refundTransactionIds: oldRecord.participantTransactionIds || [],
     dateWindow: oldRecord.dateWindow,

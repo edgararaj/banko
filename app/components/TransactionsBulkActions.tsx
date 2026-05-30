@@ -105,7 +105,7 @@ export default function TransactionsBulkActions({
       alert('Added to group');
     } catch (err) {
       console.error(err);
-      alert('Failed to add to group');
+      alert(err instanceof Error ? err.message : 'Failed to add to group');
     }
   }
 
@@ -167,7 +167,7 @@ export default function TransactionsBulkActions({
                       <ListItemButton selected={chosenGroupId === group.id} onClick={() => setChosenGroupId(group.id)}>
                         <Stack spacing={0.35} sx={{ width: '100%' }}>
                           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                            {formatCents(totals.total)} - {group.status}
+                            {group.name ? `${group.name} - ` : ''}{formatCents(totals.total)} - {group.status}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
                             Primary: {firstExpenseName}{firstExpenseBankName ? ` - ${firstExpenseBankName}` : ''}

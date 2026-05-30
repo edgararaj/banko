@@ -3,10 +3,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getAllTransactions, getAllEntities, getAllBankAccounts, createGroupFromTransactionIds, resolveTransactionBankAccountId } from '../lib/db';
 import TransactionsBulkActions from '../components/TransactionsBulkActions';
+import NiceTransactionsList from '../components/NiceTransactionsList';
 import { parseDateStringToMs } from '../lib/format';
-import { Box, Button, Card, CardActionArea, CardContent, Stack, TextField, Typography, Chip, FormControl, InputLabel, Select, MenuItem, Dialog, DialogActions, DialogContent, DialogTitle, Divider } from '@mui/material';
-import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
-import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
+import { Box, Button, Stack, TextField, Typography, FormControl, InputLabel, Select, MenuItem, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
 import type { BankAccount, Transaction } from '../lib/types';
 
 function formatCents(cents: number) {
@@ -164,62 +163,16 @@ export default function TransactionsPage() {
         <TextField type="number" slotProps={{ htmlInput: { step: '0.01' } }} value={filterAmountMax} onChange={e => setFilterAmountMax(e.target.value)} label="Max (€)" />
       </Stack>
 
-      <Stack spacing={1.25}>
-        {filtered.map((t, index) => {
-          const isOutgoing = t.amount < 0;
-          const accountId = resolveTransactionBankAccountId(t);
-          const account = accountId ? accountsById[accountId] : null;
-          const entityName = account ? (entitiesMap[account.entityId] ?? 'Unknown') : '';
-
-          return (
-            <React.Fragment key={t.id}>
-              <Card
-                variant="outlined"
-                sx={{
-                  outline: selected[t.id] ? '2px solid' : undefined,
-                  outlineColor: selected[t.id] ? 'primary.main' : undefined,
-                }}
-              >
-                <CardActionArea onClick={() => toggleSelect(t.id)}>
-                  <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Box sx={{
-                      flexShrink: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 40,
-                      height: 40,
-                      borderRadius: '50%',
-                      bgcolor: isOutgoing ? 'error.light' : 'success.light',
-                      color: isOutgoing ? 'error.dark' : 'success.dark',
-                    }}>
-                      {isOutgoing ? <ArrowDownwardRoundedIcon /> : <ArrowUpwardRoundedIcon />}
-                    </Box>
-                    <Box sx={{ minWidth: 0, flex: 1 }}>
-                      <Typography sx={{ fontWeight: 600 }} noWrap>
-                        {t.date}{entityName ? ` · ${entityName}` : ''}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" noWrap>
-                        {t.description || 'No description'}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                      <Typography sx={{ fontWeight: 600, color: isOutgoing ? 'error.main' : 'success.main' }}>
-                        {formatCents(t.amount)}
-                      </Typography>
-                      <Typography variant="body2" color={isOutgoing ? 'error.main' : 'success.main'}>
-                        {isOutgoing ? 'Outgoing' : 'Incoming'}
-                      </Typography>
-                      {selected[t.id] ? <Chip label="Selected" color="primary" size="small" sx={{ mt: 0.5 }} /> : null}
-                    </Box>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-              {index < filtered.length - 1 ? <Divider /> : null}
-            </React.Fragment>
-          );
-        })}
-      </Stack>
+      <NiceTransactionsList
+        transactions={filtered}
+        selectable
+        selectedIds={selectedIds}
+        onSelectionChange={(ids) => {
+          const next: Record<string, boolean> = {};
+          for (const id of ids) next[id] = true;
+          setSelected(next);
+        }}
+      />
 
       <TransactionsBulkActions selectedIds={selectedIds} clearSelection={() => setSelected({})} refresh={refreshTransactions} />
 

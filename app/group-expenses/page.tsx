@@ -8,7 +8,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { getAllGroupExpenses, getAllTransactions, getAllEntities, getAllBankAccounts, updateGroupExpense, deleteGroupExpense, resolveTransactionBankAccountId } from '../lib/db';
 import type { GroupExpense, BankAccount, Transaction } from '../lib/types';
 import TransactionsList from '../components/TransactionsList';
-import { participantCountForGroup, balanceExcludingPayer, candidateTransfersNearAnchor, computeGroupTotals } from '../lib/group';
+import { participantCountForGroup, balanceExcludingPayer, candidateTransfersNearExpense, candidateExpensesNearTransfer, computeGroupTotals } from '../lib/group';
 import { parseDateStringToMs } from '../lib/format';
 
 function formatCents(cents: number) {
@@ -190,20 +190,30 @@ export default function GroupExpensesPage() {
   if (editing) {
     const ed = editing;
     const expenseTransactions = txs.filter(x => ed.expenseTransactionIds?.includes(x.id) ?? false);
-    let selectorCandidates: Transaction[] = [];
+    const refundTransactions = txs.filter(x => ed.refundTransactionIds?.includes(x.id) ?? false);
+    
+    // Find nearby transfers anchored on existing expenses
+    let transferSelectorCandidates: Transaction[] = [];
     if (expenseTransactions.length > 0) {
-      selectorCandidates = candidateTransfersNearAnchor(txs, expenseTransactions[0], 10, 0.5);
-      const existingSet = new Set([...(ed.expenseTransactionIds || []), ...(ed.refundTransactionIds || [])]);
-      selectorCandidates = selectorCandidates.filter(t => !existingSet.has(t.id));
+      transferSelectorCandidates = candidateTransfersNearExpense(txs, expenseTransactions);
     }
+    
+    // Find nearby expenses anchored on existing refunds
+    let expenseSelectorCandidates: Transaction[] = [];
+    if (refundTransactions.length > 0) {
+      expenseSelectorCandidates = candidateExpensesNearTransfer(txs, refundTransactions);
+    }
+    
     const existingSet = new Set([...(ed.expenseTransactionIds || []), ...(ed.refundTransactionIds || [])]);
+    transferSelectorCandidates = transferSelectorCandidates.filter(t => !existingSet.has(t.id));
+    expenseSelectorCandidates = expenseSelectorCandidates.filter(t => !existingSet.has(t.id));
     const allSelectableTransfers = txs.filter((t) => !existingSet.has(t.id));
     const visibleTransfers = showAllTransfers
       ? allSelectableTransfers.filter(t => t.amount > 0)
-      : selectorCandidates.filter(t => t.amount > 0);
+      : transferSelectorCandidates.filter(t => t.amount > 0);
     const visibleExpenses = showAllTransfers
       ? allSelectableTransfers.filter(t => t.amount < 0)
-      : selectorCandidates.filter(t => t.amount < 0);
+      : expenseSelectorCandidates.filter(t => t.amount < 0);
 
     const participantCount = participantCountForGroup(ed, ed.refundTransactionIds);
     const parsedExtraExpenses = parseExtraExpensesInput(extraExpensesInput);

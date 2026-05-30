@@ -72,7 +72,7 @@ export function remainingIncludingPayer(totalAmount: number, txs: Transaction[],
   return Math.max(0, totalWithExtras - sum);
 }
 
-export function candidateTransfersNearExpense(txs: Transaction[], expenseTransactions: Transaction[], daysWindow = 10, maxPerShareFactor = 0.5): Transaction[] {
+export function candidateTransfersNearExpense(txs: Transaction[], expenseTransactions: Transaction[], daysWindow = 7, maxPerShareFactor = 0.5): Transaction[] {
   if (!expenseTransactions || expenseTransactions.length === 0) return [];
   
   const candidates: Transaction[] = [];
@@ -98,8 +98,28 @@ export function candidateTransfersNearExpense(txs: Transaction[], expenseTransac
   });
 }
 
-// Legacy function for backward compatibility - can be removed once UI is fully migrated
-export function candidateTransfersNearAnchor(txs: Transaction[], anchorTx: Transaction | undefined, daysWindow = 10, maxPerShareFactor = 0.5): Transaction[] {
-  if (!anchorTx) return [];
-  return candidateTransfersNearExpense(txs, [anchorTx], daysWindow, maxPerShareFactor);
+export function candidateExpensesNearTransfer(txs: Transaction[], transferTransactions: Transaction[], daysWindow = 7, maxPerShareFactor = 0.5): Transaction[] {
+  if (!transferTransactions || transferTransactions.length === 0) return [];
+  
+  const candidates: Transaction[] = [];
+  const transferIds = new Set(transferTransactions.map(t => t.id));
+  const DAY_MS = daysWindow * 24 * 60 * 60 * 1000;
+  
+  for (const transfer of transferTransactions) {
+    const nearbyExpenses = txs.filter(t =>
+      !transferIds.has(t.id) &&
+      t.amount < 0 &&
+      Math.abs(parseDateStringToMs(t.date) - parseDateStringToMs(transfer.date)) <= DAY_MS &&
+      Math.abs(t.amount) >= transfer.amount * maxPerShareFactor
+    );
+    candidates.push(...nearbyExpenses);
+  }
+  
+  // Remove duplicates
+  const uniqueIds = new Set<string>();
+  return candidates.filter(t => {
+    if (uniqueIds.has(t.id)) return false;
+    uniqueIds.add(t.id);
+    return true;
+  });
 }

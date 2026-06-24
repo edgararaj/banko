@@ -30,7 +30,6 @@ export default function NiceTransactionsList(props: Props) {
   const [fetchedTxs, setFetchedTxs] = useState<Transaction[] | null>(null);
   const [fetchedEntities, setFetchedEntities] = useState<Record<string, string> | null>(null);
   const [fetchedAccounts, setFetchedAccounts] = useState<Record<string, BankAccount> | null>(null);
-  const [groupedTransactionIds, setGroupedTransactionIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     async function load() {
@@ -51,14 +50,6 @@ export default function NiceTransactionsList(props: Props) {
         for (const account of accounts) map[account.id] = account;
         setFetchedAccounts(map);
       }
-
-      const groups = await getAllGroupExpenses();
-      const txIds = new Set<string>();
-      for (const group of groups) {
-        for (const txId of group.expenseTransactionIds || []) txIds.add(txId);
-        for (const txId of group.refundTransactionIds || []) txIds.add(txId);
-      }
-      setGroupedTransactionIds(txIds);
     }
 
     load();
@@ -119,9 +110,9 @@ export default function NiceTransactionsList(props: Props) {
                           {formatDateDisplay(t.date)}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" noWrap>
-                          {t.description || 'No description'}
+                          {entityName}
                         </Typography>
-                        {groupedTransactionIds.has(t.id) ? (
+                        {t.groupExpenseId != null ? (
                           <Typography variant="caption" sx={{ display: 'block', mt: 0.25, color: 'text.disabled' }}>
                             In group
                           </Typography>

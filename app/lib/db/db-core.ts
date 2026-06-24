@@ -1,7 +1,7 @@
-import { Transaction, Entity, BankAccount } from '../types';
+import { Transaction, Entity, BankAccount, GroupExpense } from '../types';
 
 const DB_NAME = 'banko-db';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export function normalizeName(value: string | undefined | null) {
   if (!value) return '';
@@ -32,6 +32,7 @@ export function normalizeTransaction(tx: Transaction & { linkedAccountId?: strin
     location: (tx.location as string | null | undefined) ?? null,
     amount: tx.amount as number,
     bankAccountId: resolveTransactionBankAccountId(tx as Transaction),
+    groupExpenseId: (tx as unknown as { groupExpenseId?: string | null }).groupExpenseId ?? null,
   };
 }
 
@@ -69,6 +70,9 @@ export function openDB(): Promise<IDBDatabase> {
       if (!transactionsStore.indexNames.contains('byStrictKey')) {
         transactionsStore.createIndex('byStrictKey', ['date', 'amount', 'description'], { unique: false });
       }
+      if (!transactionsStore.indexNames.contains('byGroupExpense')) {
+        transactionsStore.createIndex('byGroupExpense', 'groupExpenseId');
+      }
 
       const entitiesStore = db.objectStoreNames.contains('entities')
         ? tx.objectStore('entities')
@@ -93,7 +97,6 @@ export function openDB(): Promise<IDBDatabase> {
       if (!groupStore.indexNames.contains('byStatus')) {
         groupStore.createIndex('byStatus', 'status');
       }
-      // v3 to v4 migration: remove byAnchor index and add migration logic below
       if (groupStore.indexNames.contains('byAnchor')) {
         groupStore.deleteIndex('byAnchor');
       }
@@ -111,10 +114,21 @@ export function openDB(): Promise<IDBDatabase> {
         indexStore.createIndex('description', 'description');
       }
 
-      // Migration from v3 to v4: Convert old group_expenses format to new format
-      // ISOLATED MIGRATION LOGIC - Can be removed after v4 is stable
+      // Migration sequencing:
+      // - v3→v4: restructure group_expenses (anchor → expenses/refunds)
+      // - v4→v5: backfill groupExpenseId on transactions
+      //
+      // When upgrading from v3 directly to v5, we must chain v5 inside v4's
+      // onsuccess callback to guarantee group records are written before we
+      // read them back for the transaction backfill.
       if (oldVersion < 4 && oldVersion > 0) {
-        migrateGroupExpensesV3toV4(tx, groupStore);
+        migrateGroupExpensesV3toV4(tx, groupStore, () => {
+          if (oldVersion < 5) {
+            migrateTransactionGroupExpenseIdsV4toV5(tx);
+          }
+        });
+      } else if (oldVersion === 4) {
+        migrateTransactionGroupExpenseIdsV4toV5(tx);
       }
     };
   });
@@ -132,29 +146,28 @@ export async function readAllFromStore<T>(store: IDBObjectStore): Promise<T[]> {
  * ISOLATED MIGRATION LOGIC (v3 → v4)
  * Migrates group_expenses from old format (anchor + participants)
  * to new format (expenses + refunds).
- * 
- * This function can be removed once v4 is deployed and no v3 databases
- * are expected to be migrated anymore.
- * 
+ *
  * Migration rules:
  * - anchorTransactionId becomes the first expense
  * - participantTransactionIds become refunds
- * - totalAmount is preserved from the anchor
  * - friendCount is calculated from refunds count
+ *
+ * Calls onDone() after all records have been written, so that dependent
+ * migrations (e.g. v4→v5) can be safely chained.
  */
-function migrateGroupExpensesV3toV4(tx: IDBTransaction, groupStore: IDBObjectStore): void {
+function migrateGroupExpensesV3toV4(tx: IDBTransaction, groupStore: IDBObjectStore, onDone?: () => void): void {
   const getAllRequest = groupStore.getAll();
-  
+
   getAllRequest.onsuccess = () => {
     const oldRecords = getAllRequest.result as any[];
-    
+    let pending = 0;
+
     for (const oldRecord of oldRecords) {
       // Skip if already in new format
       if (oldRecord.expenseTransactionIds && !oldRecord.anchorTransactionId) {
         continue;
       }
-      
-      // Transform old format to new format
+
       const migratedRecord = {
         id: oldRecord.id,
         expenseTransactionIds: oldRecord.anchorTransactionId ? [oldRecord.anchorTransactionId] : [],
@@ -162,19 +175,72 @@ function migrateGroupExpensesV3toV4(tx: IDBTransaction, groupStore: IDBObjectSto
         dateWindow: oldRecord.dateWindow,
         friendCount: (oldRecord.participantTransactionIds || []).length,
         status: oldRecord.status,
-        // Remove old fields
         anchorTransactionId: undefined,
         participantTransactionIds: undefined,
         extraExpenses: oldRecord.extraExpenses ?? 0,
       };
-      
+
       // Clean up undefined fields
-      // Cast to `any` for dynamic property access to satisfy TS index checks
       Object.keys(migratedRecord).forEach(
         (key) => (migratedRecord as any)[key] === undefined && delete (migratedRecord as any)[key]
       );
-      
-      groupStore.put(migratedRecord);
+
+      pending++;
+      const putReq = groupStore.put(migratedRecord);
+      putReq.onsuccess = () => {
+        pending--;
+        if (pending === 0) onDone?.();
+      };
+      putReq.onerror = () => {
+        pending--;
+        if (pending === 0) onDone?.();
+      };
+    }
+
+    // If there were no records to migrate, call onDone immediately
+    if (pending === 0) onDone?.();
+  };
+
+  getAllRequest.onerror = () => {
+    // Still call onDone so dependent migrations aren't silently skipped
+    onDone?.();
+  };
+}
+
+/**
+ * ISOLATED MIGRATION LOGIC (v4 → v5)
+ * Backfills groupExpenseId on all transactions that belong to a group expense.
+ *
+ * Reads all group_expenses and for each transaction ID listed in
+ * expenseTransactionIds / refundTransactionIds, writes groupExpenseId back
+ * onto the transaction record.
+ *
+ * Safe to run multiple times (idempotent — skips if already set correctly).
+ */
+function migrateTransactionGroupExpenseIdsV4toV5(tx: IDBTransaction): void {
+  const groupStore = tx.objectStore('group_expenses');
+  const transactionStore = tx.objectStore('transactions');
+
+  const getAllGroups = groupStore.getAll();
+
+  getAllGroups.onsuccess = () => {
+    const groups = getAllGroups.result as GroupExpense[];
+
+    for (const group of groups) {
+      const allTxIds = [
+        ...(group.expenseTransactionIds || []),
+        ...(group.refundTransactionIds || []),
+      ];
+
+      for (const txId of allTxIds) {
+        const getReq = transactionStore.get(txId);
+        getReq.onsuccess = () => {
+          const transaction = getReq.result;
+          if (transaction && transaction.groupExpenseId !== group.id) {
+            transactionStore.put({ ...transaction, groupExpenseId: group.id });
+          }
+        };
+      }
     }
   };
 }

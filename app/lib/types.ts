@@ -8,6 +8,7 @@ export interface Transaction {
   location?: string | null;
   amount: Cents; // signed integer (cents)
   bankAccountId?: string | null; // FK → BankAccount
+  groupExpenseId?: string | null; // optional FK → GroupExpense
 }
 
 export interface Entity {

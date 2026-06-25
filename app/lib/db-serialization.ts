@@ -1,12 +1,13 @@
-import { Transaction, Entity, BankAccount, GroupExpense } from './types';
+import { Transaction, Entity, BankAccount, GroupExpense, Investment } from './types';
 import {
   getAllTransactions,
   getAllEntities,
   getAllBankAccounts,
   getAllGroupExpenses,
+  getAllInvestments,
   openDB,
 } from './db';
-import { normalizeEntity, normalizeBankAccount, normalizeTransaction } from './db/db-core';
+import { normalizeEntity, normalizeBankAccount, normalizeTransaction, normalizeInvestment } from './db/db-core';
 
 export interface DatabaseSnapshot {
   version: number;
@@ -15,23 +16,26 @@ export interface DatabaseSnapshot {
   entities: Entity[];
   bankAccounts: BankAccount[];
   groupExpenses: GroupExpense[];
+  investments: Investment[];
 }
 
 export async function serializeDatabase(): Promise<DatabaseSnapshot> {
-  const [transactions, entities, bankAccounts, groupExpenses] = await Promise.all([
+  const [transactions, entities, bankAccounts, groupExpenses, investments] = await Promise.all([
     getAllTransactions(),
     getAllEntities(),
     getAllBankAccounts(),
     getAllGroupExpenses(),
+    getAllInvestments(),
   ]);
 
   return {
-    version: 1,
+    version: 2,
     exportDate: new Date().toISOString(),
     transactions,
     entities,
     bankAccounts,
     groupExpenses,
+    investments,
   };
 }
 
@@ -60,6 +64,8 @@ export async function importDatabaseFromJson(jsonString: string): Promise<string
     throw new Error('Invalid database snapshot format');
   }
 
+  const investments = Array.isArray((snapshot as any).investments) ? (snapshot as any).investments as Investment[] : [];
+
   // ISOLATED MIGRATION LOGIC (v1 → v2)
   // Migrate group expenses from old format (anchor + participants) to new format (expenses + refunds)
   // Can be removed once v1 databases are no longer expected
@@ -73,7 +79,7 @@ export async function importDatabaseFromJson(jsonString: string): Promise<string
 
   const db = await openDB();
   const tx = db.transaction(
-    ['entities', 'linked_accounts', 'transactions', 'group_expenses', 'transaction_index'],
+    ['entities', 'linked_accounts', 'transactions', 'group_expenses', 'investments', 'transaction_index'],
     'readwrite'
   );
 
@@ -81,6 +87,7 @@ export async function importDatabaseFromJson(jsonString: string): Promise<string
   const accountsStore = tx.objectStore('linked_accounts');
   const transactionsStore = tx.objectStore('transactions');
   const groupsStore = tx.objectStore('group_expenses');
+  const investmentsStore = tx.objectStore('investments');
   const indexStore = tx.objectStore('transaction_index');
 
   await new Promise<void>((resolve, reject) => {
@@ -108,6 +115,12 @@ export async function importDatabaseFromJson(jsonString: string): Promise<string
   });
 
   await new Promise<void>((resolve, reject) => {
+    const req = investmentsStore.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  await new Promise<void>((resolve, reject) => {
     const req = indexStore.clear();
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
@@ -123,6 +136,10 @@ export async function importDatabaseFromJson(jsonString: string): Promise<string
 
   for (const transaction of snapshot.transactions) {
     transactionsStore.put(normalizeTransaction(transaction as Transaction));
+  }
+
+  for (const investment of investments) {
+    investmentsStore.put(normalizeInvestment(investment as Investment));
   }
 
   // When importing groups, avoid allowing the same transaction id to be referenced

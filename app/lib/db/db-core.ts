@@ -1,7 +1,7 @@
-import { Transaction, Entity, BankAccount, GroupExpense } from '../types';
+import { Transaction, Entity, BankAccount, GroupExpense, Investment } from '../types';
 
 const DB_NAME = 'banko-db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 export function normalizeName(value: string | undefined | null) {
   if (!value) return '';
@@ -20,6 +20,18 @@ export function normalizeBankAccount(account: Partial<BankAccount> & { id: strin
     id: account.id,
     entityId: account.entityId,
     name: normalizeName(account.name ?? account.bankName ?? '') || '__unknown__',
+  };
+}
+
+export function normalizeInvestment(investment: Partial<Investment> & { id: string }): Investment {
+  return {
+    id: investment.id,
+    name: (investment.name ?? '').trim() || '__unknown__',
+    ticker: (investment.ticker ?? '').trim().toUpperCase(),
+    date: (investment.date ?? '').trim(),
+    initialValue: Number(investment.initialValue ?? 0),
+    todayValue: Number(investment.todayValue ?? 0),
+    additionalTaxes: Number(investment.additionalTaxes ?? 0),
   };
 }
 
@@ -91,6 +103,16 @@ export function openDB(): Promise<IDBDatabase> {
         accountsStore.createIndex('byName', 'name', { unique: true });
       }
 
+      const investmentsStore = db.objectStoreNames.contains('investments')
+        ? tx.objectStore('investments')
+        : db.createObjectStore('investments', { keyPath: 'id' });
+      if (!investmentsStore.indexNames.contains('byDate')) {
+        investmentsStore.createIndex('byDate', 'date');
+      }
+      if (!investmentsStore.indexNames.contains('byTicker')) {
+        investmentsStore.createIndex('byTicker', 'ticker', { unique: false });
+      }
+
       const groupStore = db.objectStoreNames.contains('group_expenses')
         ? tx.objectStore('group_expenses')
         : db.createObjectStore('group_expenses', { keyPath: 'id' });
@@ -117,6 +139,7 @@ export function openDB(): Promise<IDBDatabase> {
       // Migration sequencing:
       // - v3→v4: restructure group_expenses (anchor → expenses/refunds)
       // - v4→v5: backfill groupExpenseId on transactions
+      // - v5→v6: add investments store
       //
       // When upgrading from v3 directly to v5, we must chain v5 inside v4's
       // onsuccess callback to guarantee group records are written before we

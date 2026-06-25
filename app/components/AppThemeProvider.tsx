@@ -1,7 +1,10 @@
 'use client'
 
 import * as React from 'react';
+import createCache from '@emotion/cache';
+import { CacheProvider } from '@emotion/react';
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
+import { useServerInsertedHTML } from 'next/navigation';
 
 type PaletteMode = 'light' | 'dark';
 
@@ -11,6 +14,10 @@ type ColorModeContextValue = {
 };
 
 const ColorModeContext = React.createContext<ColorModeContextValue | null>(null);
+
+function createEmotionCache() {
+  return createCache({ key: 'mui', prepend: true });
+}
 
 export function useAppColorMode() {
   const context = React.useContext(ColorModeContext);
@@ -29,6 +36,7 @@ function getInitialMode(): PaletteMode {
 
 export default function AppThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = React.useState<PaletteMode>(getInitialMode);
+  const [cache] = React.useState(createEmotionCache);
 
   const toggleMode = React.useCallback(() => {
     setMode((prev) => (prev === 'dark' ? 'light' : 'dark'));
@@ -50,6 +58,19 @@ export default function AppThemeProvider({ children }: { children: React.ReactNo
       document.documentElement.style.setProperty('--accent', '#2563eb');
     }
   }, [mode]);
+
+  useServerInsertedHTML(() => {
+    const inserted = Object.keys((cache as { inserted: Record<string, boolean> }).inserted).map((name) => (
+      <style
+        key={name}
+        data-emotion={`${cache.key} ${name}`}
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: (cache as { inserted: Record<string, string> }).inserted[name] }}
+      />
+    ));
+    (cache as { inserted: Record<string, boolean> }).inserted = {};
+    return <>{inserted}</>;
+  });
 
   const theme = React.useMemo(
     () =>
@@ -82,10 +103,12 @@ export default function AppThemeProvider({ children }: { children: React.ReactNo
 
   return (
     <ColorModeContext.Provider value={{ mode, toggleMode }}>
-      <ThemeProvider theme={theme}>
-        <CssBaseline enableColorScheme />
-        {children}
-      </ThemeProvider>
+      <CacheProvider value={cache}>
+        <ThemeProvider theme={theme}>
+          <CssBaseline enableColorScheme />
+          {children}
+        </ThemeProvider>
+      </CacheProvider>
     </ColorModeContext.Provider>
   );
 }

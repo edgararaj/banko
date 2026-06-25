@@ -97,7 +97,7 @@ export async function createGroupExpense(ge: GroupExpense): Promise<void> {
     tx.onerror = () => reject(tx.error);
   });
 
-  await setGroupExpenseIdForTransactions(getGroupTransactionIds(ge), ge.id);
+  await setGroupExpenseIdOnTransactions(getGroupTransactionIds(ge), ge.id);
 }
 
 export async function getAllGroupExpenses(): Promise<GroupExpense[]> {
@@ -117,13 +117,13 @@ export async function updateGroupExpense(ge: GroupExpense): Promise<void> {
   req.onsuccess = () => console.debug('db: group expense updated', ge.id);
   req.onerror = () => console.error('db: group expense update failed', req.error);
 
-  await clearGroupExpenseIdOnrTransactions(ge.id);
+  await clearGroupExpenseIdOnTransactions(ge.id);
   await new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve(undefined);
     tx.onerror = () => reject(tx.error);
   });
 
-  await setGroupExpenseIdForTransactions(getGroupTransactionIds(ge), ge.id);
+  await setGroupExpenseIdOnTransactions(getGroupTransactionIds(ge), ge.id);
 }
 
 export async function getGroupExpenseById(id: string): Promise<GroupExpense | undefined> {

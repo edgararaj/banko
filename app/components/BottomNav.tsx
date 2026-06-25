@@ -6,11 +6,13 @@ import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
 import HubRoundedIcon from '@mui/icons-material/HubRounded';
+import ShowChartRoundedIcon from '@mui/icons-material/ShowChartRounded';
 import { useRouter } from 'next/navigation';
 
 const items = [
   { href: '/', label: 'Home', icon: <HomeRoundedIcon fontSize="small" /> },
-  { href: '/transactions', label: 'Txs', icon: <ReceiptLongRoundedIcon fontSize="small" /> },
+  { href: '/transactions', label: 'Transf', icon: <ReceiptLongRoundedIcon fontSize="small" /> },
+  { href: '/investments', label: 'Invest', icon: <ShowChartRoundedIcon fontSize="small" /> },
   { href: '/entities', label: 'Entities', icon: <HubRoundedIcon fontSize="small" /> },
   { href: '/group-expenses', label: 'Groups', icon: <GroupsRoundedIcon fontSize="small" /> },
 ];

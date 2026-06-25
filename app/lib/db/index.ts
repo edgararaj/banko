@@ -3,6 +3,7 @@
 
 export { openDB } from './db-core';
 export { resolveTransactionBankAccountId } from './db-core';
+export { normalizeInvestment } from './db-core';
 
 export {
   getEntityByName,
@@ -30,6 +31,14 @@ export {
   getAllTransactions,
   getTransactionsByDateRange,
 } from './transaction';
+
+export {
+  getAllInvestments,
+  getInvestmentById,
+  addInvestmentIfNotExists,
+  updateInvestment,
+  deleteInvestment,
+} from './investment';
 
 export {
   createGroupExpense,

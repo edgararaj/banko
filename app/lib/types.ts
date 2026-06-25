@@ -11,6 +11,16 @@ export interface Transaction {
   groupExpenseId?: string | null; // optional FK → GroupExpense
 }
 
+export interface Investment {
+  id: string; // uuid
+  name: string;
+  ticker: string;
+  date: string; // ISO date string
+  initialValue: Cents;
+  todayValue: Cents;
+  additionalTaxes: Cents;
+}
+
 export interface Entity {
   id: string; // uuid
   name: string; // normalized display name (trim + lowercased for deterministic match)
